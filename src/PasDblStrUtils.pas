@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2016-06-26-05-06-0000                       *
+ *                        Version 2016-06-26-08-30-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -383,13 +383,13 @@ type PPasDblStrUtilsInt8=^TPasDblStrUtilsInt8;
      TPasDblStrUtilsRawByteCharSet=set of TPasDblStrUtilsRawByteChar;
 
      PPasDblStrUtilsRawByteString=^TPasDblStrUtilsRawByteString;
-     TPasDblStrUtilsRawByteString={$ifdef HAS_TYPE_RAWBYTESTRING}RawByteString{$else}TPasDblStrUtilsString{$endif};
+     TPasDblStrUtilsRawByteString={$ifdef HAS_TYPE_RAWBYTESTRING}RawByteString{$else}AnsiString{$endif};
 
      PPasDblStrUtilsUTF8Char=PAnsiChar;
      TPasDblStrUtilsUTF8Char=AnsiChar;
 
      PPasDblStrUtilsUTF8String=^TPasDblStrUtilsUTF8String;
-     TPasDblStrUtilsUTF8String={$ifdef HAS_TYPE_UTF8STRING}UTF8String{$else}TPasDblStrUtilsString{$endif};
+     TPasDblStrUtilsUTF8String={$ifdef HAS_TYPE_UTF8STRING}UTF8String{$else}AnsiString{$endif};
 
      PPasDblStrUtilsUTF16Char={$ifdef HAS_TYPE_UNICODESTRING}{$ifdef fpc}PUnicodeChar{$else}PWideChar{$endif}{$else}PWideChar{$endif};
      TPasDblStrUtilsUTF16Char={$ifdef HAS_TYPE_UNICODESTRING}{$ifdef fpc}UnicodeChar{$else}WideChar{$endif}{$else}WideChar{$endif};
@@ -407,7 +407,7 @@ type PPasDblStrUtilsInt8=^TPasDblStrUtilsInt8;
      TPasDblStrUtilsPointer=Pointer;
 
      PPasDblStrUtilsRoundingMode=^TPasDblStrUtilsRoundingMode;
-     TPasDblStrUtilsRoundingMode=type TRoundingMode;
+     TPasDblStrUtilsRoundingMode=type TFPURoundingMode;
 
      TPasDblStrUtilsOutputMode=(
       omStandard,
