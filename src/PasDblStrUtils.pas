@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2016-06-26-04-50-0000                       *
+ *                        Version 2016-06-26-05-04-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -401,7 +401,7 @@ type PPasDblStrUtilsInt8=^TPasDblStrUtilsInt8;
      TPasDblStrUtilsChar=AnsiChar;
 
      PPasDblStrUtilsString=^TPasDblStrUtilsString;
-     TPasDblStrUtilsString={$ifdef HAS_TYPE_RAWBYTESTRING}RawByteString{$else}TPasDblStrUtilsString{$endif};
+     TPasDblStrUtilsString={$ifdef HAS_TYPE_RAWBYTESTRING}RawByteString{$else}AnsiString{$endif};
 
      PPasDblStrUtilsPointer=^TPasDblStrUtilsPointer;
      TPasDblStrUtilsPointer=Pointer;
@@ -1803,9 +1803,9 @@ begin
    GetMem(MantissaMultiplicator,SizeOf(TWords));
    GetMem(Mantissa,SizeOf(TWords));
    GetMem(Temp,SizeOf(Temp));
-   GetMem(Digits,SizeOf(Digits));
+   GetMem(Digits,SizeOf(TDigits));
    try
-    FillChar(Digits^,SizeOf(Digits),#0);
+    FillChar(Digits^,SizeOf(TDigits),#0);
 
     DigitPos:=0;
     TenPower:=0;
