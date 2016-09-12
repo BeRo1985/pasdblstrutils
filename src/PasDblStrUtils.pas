@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2016-06-26-08-30-0000                       *
+ *                        Version 2016-09-12-08-18-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -1802,7 +1802,7 @@ begin
    i:=StoredDigitPos;
    GetMem(MantissaMultiplicator,SizeOf(TWords));
    GetMem(Mantissa,SizeOf(TWords));
-   GetMem(Temp,SizeOf(Temp));
+   GetMem(Temp,SizeOf(TTemp));
    GetMem(Digits,SizeOf(TDigits));
    try
     FillChar(Digits^,SizeOf(TDigits),#0);
