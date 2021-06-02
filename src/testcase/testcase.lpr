@@ -273,6 +273,7 @@ end;
 
 begin
 
+
  TestDataPath:=IncludeTrailingPathDelimiter(ExpandFileName(IncludeTrailingPathDelimiter(IncludeTrailingPathDelimiter(IncludeTrailingPathDelimiter(IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0)))+'..')+'..')+'testdata')));
  writeln('Test data path: ',TestDataPath);
  writeln;
