@@ -273,6 +273,9 @@ end;
 
 begin
 
+{writeln(RyuStringtoDouble('-333463636363636.3'):1:15);
+ readln;
+ exit;}
 
  TestDataPath:=IncludeTrailingPathDelimiter(ExpandFileName(IncludeTrailingPathDelimiter(IncludeTrailingPathDelimiter(IncludeTrailingPathDelimiter(IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0)))+'..')+'..')+'testdata')));
  writeln('Test data path: ',TestDataPath);
