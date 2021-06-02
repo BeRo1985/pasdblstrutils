@@ -793,7 +793,7 @@ end;
 function MultipleOfPowerOf2(const aValue:TPasDblStrUtilsUInt64;const aP:TPasDblStrUtilsUInt32):boolean;
 begin
  Assert(aValue<>0);
- Assert(aP<63);
+ Assert(aP<64);
  result:=(aValue and ((TPasDblStrUtilsUInt64(1) shl aP)-1))=0;
 end;
 
@@ -820,6 +820,10 @@ end;
 
 function Log10Pow2(const e:TPasDblStrUtilsInt32):TPasDblStrUtilsInt32;
 begin
+ if (e<0) or (e>32768) then begin
+  writeln(e);
+  Assert(e>=0);
+ end;
  Assert(e>=0);
  Assert(e<=32768);
  result:=TPasDblStrUtilsUInt32((TPasDblStrUtilsUInt64(e)*TPasDblStrUtilsUInt64(169464822037455)) shr 49);
@@ -1206,6 +1210,7 @@ type TFloatingDecimal64=record
      end;
  function DecimalLength17(const aValue:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt32;
  begin
+{$ifdef fpc}
   case aValue of
    TPasDblStrUtilsUInt64(0)..TPasDblStrUtilsUInt64(9):begin
     result:=1;
@@ -1256,19 +1261,58 @@ type TFloatingDecimal64=record
     result:=16;
    end;
    else begin
-    Assert(aValue<100000000000000000);
+    Assert(aValue<TPasDblStrUtilsUInt64(100000000000000000));
     result:=17;
    end;
   end;
+{$else}
+  if aValue<TPasDblStrUtilsUInt64(10) then begin
+   result:=1;
+  end else if aValue<TPasDblStrUtilsUInt64(100) then begin
+   result:=2;
+  end else if aValue<TPasDblStrUtilsUInt64(1000) then begin
+   result:=3;
+  end else if aValue<TPasDblStrUtilsUInt64(10000) then begin
+   result:=4;
+  end else if aValue<TPasDblStrUtilsUInt64(100000) then begin
+   result:=5;
+  end else if aValue<TPasDblStrUtilsUInt64(1000000) then begin
+   result:=6;
+  end else if aValue<TPasDblStrUtilsUInt64(10000000) then begin
+   result:=7;
+  end else if aValue<TPasDblStrUtilsUInt64(100000000) then begin
+   result:=8;
+  end else if aValue<TPasDblStrUtilsUInt64(1000000000) then begin
+   result:=9;
+  end else if aValue<TPasDblStrUtilsUInt64(10000000000) then begin
+   result:=10;
+  end else if aValue<TPasDblStrUtilsUInt64(100000000000) then begin
+   result:=11;
+  end else if aValue<TPasDblStrUtilsUInt64(1000000000000) then begin
+   result:=12;
+  end else if aValue<TPasDblStrUtilsUInt64(10000000000000) then begin
+   result:=13;
+  end else if aValue<TPasDblStrUtilsUInt64(100000000000000) then begin
+   result:=14;
+  end else if aValue<TPasDblStrUtilsUInt64(1000000000000000) then begin
+   result:=15;
+  end else if aValue<TPasDblStrUtilsUInt64(10000000000000000) then begin
+   result:=16;
+  end else begin
+   Assert(aValue<TPasDblStrUtilsUInt64(100000000000000000));
+   result:=17;
+  end;
+{$endif}
  end;
  function DoubleToDecimal(const aIEEEMantissa:TPasDblStrUtilsUInt64;const aIEEEExponent:TPasDblStrUtilsUInt32):TFloatingDecimal64;
- var e2:TPasDblStrUtilsInt64;
+ var e2:TPasDblStrUtilsInt32;
      m2,mv,vr,vp,vm,Output,vpDiv10,vmDiv10,vrDiv10,vpDiv100,vmDiv100,vrDiv100:TPasDblStrUtilsUInt64;
      mmShift,q,mvMod5,vpMod10,vmMod10,vrMod10,vrMod100:TPasDblStrUtilsUInt32;
      e10,k,i,j,Removed:TPasDblStrUtilsInt32;
      LastRemovedDigit:TPasDblStrUtilsUInt8;
      Even,AcceptBounds,vmIsTrailingZeros,vrIsTrailingZeros,RoundUp:boolean;
  begin
+  LastRemovedDigit:=0;
   if aIEEEExponent=0 then begin
    e2:=1-(DOUBLE_BIAS+DOUBLE_MANTISSA_BITS+2);
    m2:=aIEEEMantissa;
@@ -1287,8 +1331,8 @@ type TFloatingDecimal64=record
    q:=Log10Pow2(e2)-(ord(e2>3) and 1);
    e10:=q;
    k:=Pow5Bits(q)+(DOUBLE_POW5_INV_BITCOUNT-1);
-   i:=(q+k)-e2;
-   vr:=MulShiftAll64(m2,DOUBLE_POW5_INV_SPLIT[q],i,vp,vm,mmShift);
+   i:=(TPasDblStrUtilsInt32(q)+TPasDblStrUtilsInt32(k))-TPasDblStrUtilsInt32(e2);
+   vr:=MulShiftAll64(m2,@DOUBLE_POW5_INV_SPLIT[q],i,vp,vm,mmShift);
    if q<=21 then begin
     mvMod5:=TPasDblStrUtilsUInt32(mv and $ffffffff)-TPasDblStrUtilsUInt32(5*(Div5(mv) and $ffffffff));
     if mvMod5=0 then begin
@@ -1305,7 +1349,7 @@ type TFloatingDecimal64=record
    i:=(-e2)-TPasDblStrUtilsInt32(q);
    k:=Pow5bits(i)-DOUBLE_POW5_BITCOUNT;
    j:=TPasDblStrUtilsInt32(q)-k;
-   vr:=MulShiftAll64(m2,DOUBLE_POW5_SPLIT[i],j,vp,vm,mmShift);
+   vr:=MulShiftAll64(m2,@DOUBLE_POW5_SPLIT[i],j,vp,vm,mmShift);
    if q<=1 then begin
     vrIsTrailingZeros:=true;
     if AcceptBounds then begin
@@ -1356,7 +1400,7 @@ type TFloatingDecimal64=record
    if vrIsTrailingZeros and (LastRemovedDigit=5) and ((vr and 1)=0) then begin
     LastRemovedDigit:=4;
    end;
-   Output:=vr+(ord(((vr=vm) and ((not acceptBounds) or not vmIsTrailingZeros)) or (LastRemovedDigit>=5)) and 1);
+   Output:=vr+TPasDblStrUtilsUInt64(ord(((vr=vm) and ((not acceptBounds) or not vmIsTrailingZeros)) or (LastRemovedDigit>=5)) and 1);
   end else begin
    RoundUp:=false;
    vpDiv100:=Div100(vp);
@@ -1379,15 +1423,12 @@ type TFloatingDecimal64=record
     vrDiv10:=Div10(vr);
     vrMod10:=TPasDblStrUtilsUInt32(vr and $ffffffff)-(10*TPasDblStrUtilsUInt32(vrDiv10 and $ffffffff));
     RoundUp:=vrMod10>=5;
-    vmIsTrailingZeros:=vmIsTrailingZeros and (vmMod10=0);
-    vrIsTrailingZeros:=vmIsTrailingZeros and (LastRemovedDigit=0);
-    LastRemovedDigit:=TPasDblStrUtilsUInt8(vrMod10 and $ff);
     vr:=vrDiv10;
     vp:=vpDiv10;
     vm:=vmDiv10;
     inc(Removed);
    until false;
-   Output:=vr+(ord((vr=vm) or RoundUp) and 1);
+   Output:=vr+TPasDblStrUtilsUInt64(ord((vr=vm) or RoundUp) and 1);
   end;
   result.Exponent:=e10+Removed;
   result.Mantissa:=Output;
@@ -1465,7 +1506,7 @@ begin
    end;
    Output:=FloatingDecimal64.Mantissa;
    OutputLen:=DecimalLength17(Output);
-   Exponent:=(FloatingDecimal64.Exponent+TPasDblStrUtilsUInt32(OutputLen))-1;
+   Exponent:=(FloatingDecimal64.Exponent+TPasDblStrUtilsInt32(OutputLen))-1;
    if aExponential or (abs(Exponent)>8) then begin
     if OutputLen>1 then begin
      Anchor:=Len+1;
@@ -1564,6 +1605,7 @@ begin
  end;
  InputStringLength:=length(aStringValue);
  if InputStringLength=0 then begin
+  result:=0.0;
   exit;
  end;
  CountBase10MantissaDigits:=0;
@@ -1611,15 +1653,17 @@ begin
   case c of
    '.':begin
     if DotPosition<>(InputStringLength+1) then begin
+     result:=0.0;
      exit;
     end;
     DotPosition:=Position;
    end;
    '0'..'9':begin
     if CountBase10MantissaDigits>=17 then begin
+     result:=0.0;
      exit;
     end;
-    Base10Mantissa:=(Base10Mantissa*10)+(TPasDblStrUtilsUInt8(AnsiChar(c))-TPasDblStrUtilsUInt8(AnsiChar('0')));
+    Base10Mantissa:=(Base10Mantissa*10)+TPasDblStrUtilsUInt64(TPasDblStrUtilsUInt8(AnsiChar(c))-TPasDblStrUtilsUInt8(AnsiChar('0')));
     if Base10Mantissa<>0 then begin
      inc(CountBase10MantissaDigits);
     end;
@@ -1666,6 +1710,7 @@ begin
      end;
     end;
     else begin
+     result:=0.0;
      exit;
     end;
    end;
@@ -1673,6 +1718,7 @@ begin
   end;
  end;
  if Position<=InputStringLength then begin
+  result:=0.0;
   exit;
  end;
  if SignedExponent then begin
@@ -1707,19 +1753,21 @@ begin
   exit;
  end;
  if Base10Exponent>=0 then begin
-  Base2Exponent:=((FloorLog2(Base10Mantissa)+Base10Exponent)+Log2Pow5(Base10Exponent))-(DOUBLE_MANTISSA_BITS+1);
+  Base2Exponent:=((TPasDblStrUtilsInt32(FloorLog2(Base10Mantissa))+Base10Exponent)+TPasDblStrUtilsInt32(Log2Pow5(Base10Exponent)))-(DOUBLE_MANTISSA_BITS+1);
   Temporary:=((Base2Exponent-Base10Exponent)-CeilLog2Pow5(Base10Exponent))+DOUBLE_POW5_BITCOUNT;
   Assert(Temporary>=0);
-  Base2Mantissa:=MulShift64(Base10Mantissa,DOUBLE_POW5_SPLIT[Base10Exponent],Temporary);
-  TrailingZeros:=(Base2Exponent<Base10Exponent) or (((Base2Exponent-Base10Exponent)<64) and MultipleOfPowerOf2(Base10Mantissa,Base2Exponent-Base10Exponent));
+  Base2Mantissa:=MulShift64(Base10Mantissa,@DOUBLE_POW5_SPLIT[Base10Exponent],Temporary);
+  TrailingZeros:=(Base2Exponent<Base10Exponent) or
+                 (((Base2Exponent-Base10Exponent)<64) and
+                  MultipleOfPowerOf2(Base10Mantissa,Base2Exponent-Base10Exponent));
  end else begin
-  Base2Exponent:=((FloorLog2(Base10Mantissa)+Base10Exponent)-CeilLog2Pow5(-Base10Exponent))-(DOUBLE_MANTISSA_BITS+1);
+  Base2Exponent:=((TPasDblStrUtilsInt32(FloorLog2(Base10Mantissa))+Base10Exponent)-TPasDblStrUtilsInt32(CeilLog2Pow5(-Base10Exponent)))-(DOUBLE_MANTISSA_BITS+1);
   Temporary:=(((Base2Exponent-Base10Exponent)+CeilLog2Pow5(-Base10Exponent))-1)+DOUBLE_POW5_INV_BITCOUNT;
   assert((-Base10Exponent)<DOUBLE_POW5_INV_TABLE_SIZE);
-  Base2Mantissa:=MulShift64(Base10Mantissa,DOUBLE_POW5_INV_SPLIT[-Base10Exponent],Temporary);
+  Base2Mantissa:=MulShift64(Base10Mantissa,@DOUBLE_POW5_INV_SPLIT[-Base10Exponent],Temporary);
   TrailingZeros:=MultipleOfPowerOf5(Base10Mantissa,-Base10Exponent);
  end;
- Exponent:=Base2Exponent+DOUBLE_EXPONENT_BIAS+FloorLog2(Base2Mantissa);
+ Exponent:=Base2Exponent+DOUBLE_EXPONENT_BIAS+TPasDblStrUtilsInt32(FloorLog2(Base2Mantissa));
  if Exponent<0 then begin
   IEEEExponent:=0;
  end else begin
@@ -1742,7 +1790,7 @@ begin
  TrailingZeros:=TrailingZeros and ((Base2Mantissa and ((TPasDblStrUtilsUInt64(1) shl (Shift-1))-1))=0);
  LastRemovedBit:=(Base2Mantissa shr (Shift-1)) and 1;
  RoundUp:=(LastRemovedBit<>0) and ((not TrailingZeros) or (((Base2Mantissa shr Shift) and 1)<>0));
- IEEEMantissa:=(Base2Mantissa shr Shift)+(ord(RoundUp) and 1);
+ IEEEMantissa:=(Base2Mantissa shr Shift)+TPasDblStrUtilsUInt64(ord(RoundUp) and 1);
  Assert(IEEEMantissa<=(TPasDblStrUtilsUInt64(1) shl (DOUBLE_MANTISSA_BITS+1)));
  IEEEMantissa:=IEEEMantissa and ((TPasDblStrUtilsUInt64(1) shl DOUBLE_MANTISSA_BITS)-1);
  if (IEEEMantissa=0) and RoundUp then begin
