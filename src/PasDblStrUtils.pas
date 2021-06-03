@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2021-06-03-16-22-0000                       *
+ *                        Version 2021-06-03-17-59-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -820,10 +820,6 @@ end;
 
 function Log10Pow2(const e:TPasDblStrUtilsInt32):TPasDblStrUtilsInt32;
 begin
- if (e<0) or (e>32768) then begin
-  writeln(e);
-  Assert(e>=0);
- end;
  Assert(e>=0);
  Assert(e<=32768);
  result:=TPasDblStrUtilsUInt32((TPasDblStrUtilsUInt64(e)*TPasDblStrUtilsUInt64(169464822037455)) shr 49);
@@ -1212,6 +1208,7 @@ const DOUBLE_MANTISSA_BITS=52;
 var InputStringLength,
     CountBase10MantissaDigits,ExtraCountBase10MantissaDigits,CountBase10ExponentDigits,
     DotPosition,ExponentPosition,
+    Base10MantissaBits,Base10MantissaRemovedBits,
     Base10Exponent,Position,Base2Exponent,Shift,Temporary,Exponent:TPasDblStrUtilsInt32;
     Base10Mantissa,Base2Mantissa,IEEEMantissa:TPasDblStrUtilsUInt64;
     IEEEExponent,LastRemovedBit:TPasDblStrUtilsUInt32;
@@ -1288,9 +1285,6 @@ begin
       inc(CountBase10MantissaDigits);
      end;
     end else begin
-     if ExtraCountBase10MantissaDigits=0 then begin
-      ExtraRoundUp:=ExtraRoundUp or (TPasDblStrUtilsUInt8(TPasDblStrUtilsUInt8(AnsiChar(c))-TPasDblStrUtilsUInt8(AnsiChar('0')))>=5);
-     end;
      inc(ExtraCountBase10MantissaDigits);
     end;
    end;
@@ -1379,8 +1373,16 @@ begin
   end;
   exit;
  end;
+ Base10MantissaBits:=FloorLog2(Base10Mantissa);
+ if Base10MantissaBits>53 then begin
+  Base10MantissaRemovedBits:=Base10MantissaBits-53;
+  Base10Mantissa:=(Base10Mantissa shr Base10MantissaRemovedBits)+(ord((Base10Mantissa and (TPasDblStrUtilsUInt64(1) shl (Base10MantissaRemovedBits-1)))<>0) and 1);
+  Base10MantissaBits:=53;
+ end else begin
+  Base10MantissaRemovedBits:=0;
+ end;
  if Base10Exponent>=0 then begin
-  Base2Exponent:=((TPasDblStrUtilsInt32(FloorLog2(Base10Mantissa))+Base10Exponent)+TPasDblStrUtilsInt32(Log2Pow5(Base10Exponent)))-(DOUBLE_MANTISSA_BITS+1);
+  Base2Exponent:=((TPasDblStrUtilsInt32(Base10MantissaBits)+Base10Exponent)+TPasDblStrUtilsInt32(Log2Pow5(Base10Exponent)))-(DOUBLE_MANTISSA_BITS+1);
   Temporary:=((Base2Exponent-Base10Exponent)-CeilLog2Pow5(Base10Exponent))+DOUBLE_POW5_BITCOUNT;
   Assert(Temporary>=0);
   Base2Mantissa:=MulShift64(Base10Mantissa,@DOUBLE_POW5_SPLIT[Base10Exponent],Temporary);
@@ -1388,7 +1390,7 @@ begin
                  (((Base2Exponent-Base10Exponent)<64) and
                   MultipleOfPowerOf2(Base10Mantissa,Base2Exponent-Base10Exponent));
  end else begin
-  Base2Exponent:=((TPasDblStrUtilsInt32(FloorLog2(Base10Mantissa))+Base10Exponent)-TPasDblStrUtilsInt32(CeilLog2Pow5(-Base10Exponent)))-(DOUBLE_MANTISSA_BITS+1);
+  Base2Exponent:=((TPasDblStrUtilsInt32(Base10MantissaBits)+Base10Exponent)-TPasDblStrUtilsInt32(CeilLog2Pow5(-Base10Exponent)))-(DOUBLE_MANTISSA_BITS+1);
   Temporary:=(((Base2Exponent-Base10Exponent)+CeilLog2Pow5(-Base10Exponent))-1)+DOUBLE_POW5_INV_BITCOUNT;
   assert((-Base10Exponent)<DOUBLE_POW5_INV_TABLE_SIZE);
   Base2Mantissa:=MulShift64(Base10Mantissa,@DOUBLE_POW5_INV_SPLIT[-Base10Exponent],Temporary);
@@ -1400,17 +1402,18 @@ begin
  end else begin
   IEEEExponent:=Exponent;
  end;
+ if IEEEExponent=0 then begin
+  Shift:=1;
+ end else begin
+  Shift:=IEEEExponent;
+ end;
+ inc(IEEEExponent,Base10MantissaRemovedBits);
  if IEEEExponent>$7fe then begin
   result:=UInt64Bits2Double((TPasDblStrUtilsUInt64((ord(SignedMantissa) and 1)) shl (DOUBLE_EXPONENT_BITS+DOUBLE_MANTISSA_BITS)) or (TPasDblStrUtilsUInt64($7ff) shl DOUBLE_MANTISSA_BITS));
   if assigned(aOK) then begin
    aOK^:=true;
   end;
   exit;
- end;
- if IEEEExponent=0 then begin
-  Shift:=1;
- end else begin
-  Shift:=IEEEExponent;
  end;
  Shift:=(Shift-Base2Exponent)-(DOUBLE_EXPONENT_BIAS+DOUBLE_MANTISSA_BITS);
  Assert(Shift>=0);
@@ -1425,7 +1428,7 @@ begin
  end;
  result:=UInt64Bits2Double((TPasDblStrUtilsUInt64(ord(SignedMantissa) and 1) shl (DOUBLE_EXPONENT_BITS+DOUBLE_MANTISSA_BITS)) or (TPasDblStrUtilsUInt64(IEEEExponent) shl DOUBLE_MANTISSA_BITS) or IEEEMantissa);
  if assigned(aOK) then begin
-  aOK^:=ExtraCountBase10MantissaDigits=0;
+  aOK^:=(ExtraCountBase10MantissaDigits=0) and (Base10MantissaRemovedBits=0);
  end;
 end;
 
