@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2021-06-03-23-10-0000                       *
+ *                        Version 2021-06-04-01-33-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -2093,7 +2093,6 @@ type TFloatingDecimal64=record
      LastRemovedDigit:TPasDblStrUtilsUInt8;
      Even,AcceptBounds,vmIsTrailingZeros,vrIsTrailingZeros,RoundUp:boolean;
  begin
-  LastRemovedDigit:=0;
   if aIEEEExponent=0 then begin
    e2:=1-(DOUBLE_BIAS+DOUBLE_MANTISSA_BITS+2);
    m2:=aIEEEMantissa;
@@ -2107,7 +2106,6 @@ type TFloatingDecimal64=record
   mmShift:=ord((aIEEEMantissa<>0) or (aIEEEExponent<=1)) and 1;
   vmIsTrailingZeros:=false;
   vrIsTrailingZeros:=false;
-  Removed:=0;
   if e2>=0 then begin
    q:=Log10Pow2(e2)-(ord(e2>3) and 1);
    e10:=q;
@@ -2142,6 +2140,8 @@ type TFloatingDecimal64=record
     vrIsTrailingZeros:=MultipleOfPowerOf2(mv,q);
    end;
   end;
+  Removed:=0;
+  LastRemovedDigit:=0;
   if vmIsTrailingZeros or vrIsTrailingZeros then begin
    repeat
     vpDiv10:=Div10(vp);
@@ -2153,7 +2153,7 @@ type TFloatingDecimal64=record
     vrDiv10:=Div10(vr);
     vrMod10:=TPasDblStrUtilsUInt32(vr and $ffffffff)-(10*TPasDblStrUtilsUInt32(vrDiv10 and $ffffffff));
     vmIsTrailingZeros:=vmIsTrailingZeros and (vmMod10=0);
-    vrIsTrailingZeros:=vmIsTrailingZeros and (LastRemovedDigit=0);
+    vrIsTrailingZeros:=vrIsTrailingZeros and (LastRemovedDigit=0);
     LastRemovedDigit:=TPasDblStrUtilsUInt8(vrMod10 and $ff);
     vr:=vrDiv10;
     vp:=vpDiv10;
@@ -2170,7 +2170,7 @@ type TFloatingDecimal64=record
      vpDiv10:=Div10(vp);
      vrDiv10:=Div10(vr);
      vrMod10:=TPasDblStrUtilsUInt32(vr and $ffffffff)-(10*TPasDblStrUtilsUInt32(vrDiv10 and $ffffffff));
-     vrIsTrailingZeros:=vmIsTrailingZeros and (LastRemovedDigit=0);
+     vrIsTrailingZeros:=vrIsTrailingZeros and (LastRemovedDigit=0);
      LastRemovedDigit:=TPasDblStrUtilsUInt8(vrMod10 and $ff);
      vr:=vrDiv10;
      vp:=vpDiv10;
@@ -2218,9 +2218,9 @@ type TFloatingDecimal64=record
  var m2:TPasDblStrUtilsUInt64;
      e2:TPasDblStrUtilsInt32;
  begin
-  m2:=TPasDblStrUtilsUInt64(1) shl DOUBLE_MANTISSA_BITS;
+  m2:=(TPasDblStrUtilsUInt64(1) shl DOUBLE_MANTISSA_BITS) or aIEEEMantissa;
   e2:=aIEEEExponent-(DOUBLE_BIAS+DOUBLE_MANTISSA_BITS);
-  if (e2>0) or (e2<-52) or ((m2 and ((TPasDblStrUtilsUInt64(1) shr (-e2))-1))<>0) then begin
+  if (e2>0) or (e2<-52) or ((m2 and ((TPasDblStrUtilsUInt64(1) shl (-e2))-1))<>0) then begin
    result:=false;
   end else begin
    aResult.Mantissa:=m2 shr (-e2);
