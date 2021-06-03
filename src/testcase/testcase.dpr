@@ -271,11 +271,34 @@ begin
 
 end;
 
+procedure TestAllPossibleValuesExhaustively;
+var ValueUI64:UInt64;
+    ValueF64:Double absolute ValueUI64;
+    OutputUI64:UInt64;
+    OutputF64:Double absolute OutputUI64;
+    OutputString:TPasDblStrUtilsRawByteString;
 begin
+ ValueUI64:=0;
+ repeat
+  OutputString:=ConvertDoubleToString(ValueF64);
+  OutputF64:=ConvertStringToDouble(OutputString);
+  if ValueF64<>OutputF64 then begin
+   writeln('Failed: ',UpperCase(IntToHex(ValueUI64)),' <> ',UpperCase(IntToHex(OutputUI64)),' ',OutputString);
+  end;
+  inc(ValueUI64);
+  if (ValueUI64 and UInt64($7ff0000000000000))=UInt64($7ff0000000000000) then begin
+   // Skip NaNs and Infinities
+   if (ValueUI64 and UInt64($8000000000000000))=0 then begin
+    ValueUI64:=UInt64($8000000000000000);
+   end else begin
+    // Here in this case, we can break the loop as whole
+    break;
+   end;
+  end;
+ until ValueUI64=0;
+end;
 
-{writeln(RyuStringtoDouble('-333463636363636.3'):1:15);
- readln;
- exit;}
+begin
 
  TestDataPath:=IncludeTrailingPathDelimiter(ExpandFileName(IncludeTrailingPathDelimiter(IncludeTrailingPathDelimiter(IncludeTrailingPathDelimiter(IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0)))+'..')+'..')+'testdata')));
  writeln('Test data path: ',TestDataPath);
@@ -290,6 +313,11 @@ begin
 
   writeln('Running converting test . . .');
   TestConverter;
+  writeln('Done!');
+  writeln;
+
+  writeln('Running brutefore test . . .');
+  TestAllPossibleValuesExhaustively;
   writeln('Done!');
   writeln;
 
