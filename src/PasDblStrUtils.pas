@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2021-06-03-17-59-0000                       *
+ *                        Version 2021-06-03-23-10-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -34,10 +34,8 @@
  *    appropriate copyright notice.                                           *
  * 3. After a pull request, check the status of your pull request on          *
       http://github.com/BeRo1985/pasdblstrutils                               *
- * 4. Write code, which is compatible with Delphi 7-XE7 and FreePascal >= 3.0 *
- *    so don't use generics/templates, operator overloading and another newer *
- *    syntax features than Delphi 7 has support for that, but if needed, make *
- *    it out-ifdef-able.                                                      *
+ * 4. Write code, which is compatible with Delphi >=XE7 and FreePascal        *
+ *    >= 3.0                                                                  *
  * 5. Don't use Delphi-only, FreePascal-only or Lazarus-only libraries/units, *
  *    but if needed, make it out-ifdef-able.                                  *
  * 6. No use of third-party libraries/units as possible, but if needed, make  *
@@ -418,7 +416,7 @@ type PPasDblStrUtilsInt8=^TPasDblStrUtilsInt8;
       omRadix
      );
 
-function RyuStringToDouble(const aStringValue:TPasDblStrUtilsString;const aOK:PPasDblStrUtilsBoolean=nil):TPasDblStrUtilsDouble;
+function RyuStringToDouble(const aStringValue:TPasDblStrUtilsString;const aOK:PPasDblStrUtilsBoolean=nil;const aStrict:boolean=false):TPasDblStrUtilsDouble;
 
 function RyuDoubleToString(const aValue:TPasDblStrUtilsDouble;const aExponential:boolean=true):TPasDblStrUtilsString;
 
@@ -615,8 +613,8 @@ begin
 {$endif}
 end;
 
-{$if declared(BSRQWord)}
 function CLZQWord(aValue:TPasDblStrUtilsUInt64):TPasDblStrUtilsInt32;
+{$if declared(BSRQWord)}
 begin
  if aValue=0 then begin
   result:=0;
@@ -625,7 +623,6 @@ begin
  end;
 end;
 {$else}
-function CLZQWord(aValue:TPasDblStrUtilsUInt64):TPasDblStrUtilsInt32;
 const CLZDebruijn64Multiplicator:TPasDblStrUtilsUInt64=TPasDblStrUtilsUInt64($03f79d71b4cb0a89);
       CLZDebruijn64Shift=58;
       CLZDebruijn64Mask=63;
@@ -645,7 +642,33 @@ begin
   result:=CLZDebruijn64Table[((aValue*CLZDebruijn64Multiplicator) shr CLZDebruijn64Shift) and CLZDebruijn64Mask];
  end;
 end;
+{$ifend}
 
+function CTZQWord(aValue:TPasDblStrUtilsUInt64):TPasDblStrUtilsInt32;
+{$if declared(BSFQWord)}
+begin
+ if aValue=0 then begin
+  result:=64;
+ end else begin
+  result:=BSFQWord(aValue);
+ end;
+end;
+{$else}
+const CTZDebruijn64Multiplicator:TPasDblStrUtilsUInt64=TPasDblStrUtilsUInt64($07edd5e59a4e28c2);
+      CTZDebruijn64Shift=58;
+      CTZDebruijn64Mask=63;
+      CTZDebruijn64Table:array[0..63] of TPasDblStrUtilsInt32=(63,0,58,1,59,47,53,2,60,39,48,27,54,33,42,3,61,51,37,40,49,18,28,20,55,30,34,11,43,14,22,4,
+                                                           62,57,46,52,38,26,32,41,50,36,17,19,29,10,13,21,56,45,25,31,35,16,9,12,44,24,15,8,23,7,6,5);
+begin
+ if aValue=0 then begin
+  result:=64;
+ end else begin
+  result:=CTZDebruijn64Table[(((aValue and (-aValue))*CTZDebruijn64Multiplicator) shr CTZDebruijn64Shift) and CTZDebruijn64Mask];
+ end;
+end;
+{$ifend}
+
+{$if not declared(BSRQWord)}
 function BSRQWord(aValue:TPasDblStrUtilsUInt64):TPasDblStrUtilsInt32;
 const BSRDebruijn64Multiplicator:TPasDblStrUtilsUInt64=TPasDblStrUtilsUInt64($03f79d71b4cb0a89);
       BSRDebruijn64Shift=58;
@@ -680,6 +703,7 @@ begin
 end;
 {$ifend}
 
+{$if not declared(TPasDblStrUtilsUInt128)}
 function UMul128(const a,b:TPasDblStrUtilsUInt64;out aProductHi:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt64;
 var u0,u1,v0,v1,t,w0,w1,w2:TPasDblStrUtilsUInt64;
 begin
@@ -701,13 +725,503 @@ function ShiftRight128(const aLo,aHi:TPasDblStrUtilsUInt64;const aShift:TPasDblS
 begin
  result:=(aHi shl (64-aShift)) or (aLo shr aShift);
 end;
+{$ifend}
 
-function UMulH(const a,b:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt64;
+type TPasDblStrUtilsUInt128=packed record
+      public
+       constructor Create(const aHi,aLo:TPasDblStrUtilsUInt64);
+       function CountLeadingZeroBits:TPasDblStrUtilsInt32;
+       function CountTrailingZeroBits:TPasDblStrUtilsInt32;
+       function FloorLog2:TPasDblStrUtilsInt32;
+       class operator Implicit(const a:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt128; {$ifdef caninline}inline;{$endif}
+       class operator Implicit(const a:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt64; {$ifdef caninline}inline;{$endif}
+       class operator Explicit(const a:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt128; {$ifdef caninline}inline;{$endif}
+       class operator Explicit(const a:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt64; {$ifdef caninline}inline;{$endif}
+       class operator Inc(const a:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128; {$ifdef caninline}inline;{$endif}
+       class operator Dec(const a:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128; {$ifdef caninline}inline;{$endif}
+       class operator Add(const a,b:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128; {$ifdef caninline}inline;{$endif}
+       class operator Subtract(const a,b:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128; {$ifdef caninline}inline;{$endif}
+       class operator LeftShift(const a:TPasDblStrUtilsUInt128;Shift:TPasDblStrUtilsInt32):TPasDblStrUtilsUInt128;
+       class operator RightShift(const a:TPasDblStrUtilsUInt128;Shift:TPasDblStrUtilsInt32):TPasDblStrUtilsUInt128;
+       class operator BitwiseAnd(const a,b:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128; {$ifdef caninline}inline;{$endif}
+       class operator BitwiseOr(const a,b:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128; {$ifdef caninline}inline;{$endif}
+       class operator BitwiseXor(const a,b:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128; {$ifdef caninline}inline;{$endif}
+       class operator LogicalNot(const a:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128; {$ifdef caninline}inline;{$endif}
+       class operator Negative(const a:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128; {$ifdef caninline}inline;{$endif}
+       class operator Positive(const a:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128; {$ifdef caninline}inline;{$endif}
+       class operator Equal(const a,b:TPasDblStrUtilsUInt128):boolean; {$ifdef caninline}inline;{$endif}
+       class operator NotEqual(const a,b:TPasDblStrUtilsUInt128):boolean; {$ifdef caninline}inline;{$endif}
+       class operator GreaterThan(const a,b:TPasDblStrUtilsUInt128):boolean; {$ifdef caninline}inline;{$endif}
+       class operator GreaterThanOrEqual(const a,b:TPasDblStrUtilsUInt128):boolean; {$ifdef caninline}inline;{$endif}
+       class operator LessThan(const a,b:TPasDblStrUtilsUInt128):boolean; {$ifdef caninline}inline;{$endif}
+       class operator LessThanOrEqual(const a,b:TPasDblStrUtilsUInt128):boolean; {$ifdef caninline}inline;{$endif}
+       class function Mul64(const a,b:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt128; static;
+       class operator Multiply(const a,b:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128;
+       class procedure BinaryDivMod128(Dividend,Divisor:TPasDblStrUtilsUInt128;out Quotient,Remainder:TPasDblStrUtilsUInt128); static;
+       class procedure BinaryDivMod64(const Dividend:TPasDblStrUtilsUInt128;const Divisor:TPasDblStrUtilsUInt64;out Quotient:TPasDblStrUtilsUInt128;out Remainder:TPasDblStrUtilsUInt64); static;
+       class procedure DivMod64(const Dividend:TPasDblStrUtilsUInt128;const Divisor:TPasDblStrUtilsUInt64;out Quotient,Remainder:TPasDblStrUtilsUInt64); static;
+       class procedure DivMod128Ex(Dividend,Divisor:TPasDblStrUtilsUInt128;out Quotient,Remainder:TPasDblStrUtilsUInt128); static;
+       class procedure DivMod128(Dividend,Divisor:TPasDblStrUtilsUInt128;out Quotient,Remainder:TPasDblStrUtilsUInt128); static;
+       class operator IntDivide(const Dividend:TPasDblStrUtilsUInt128;const Divisor:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt128;
+       class operator IntDivide(const Dividend,Divisor:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128;
+       class operator Modulus(const Dividend:TPasDblStrUtilsUInt128;const Divisor:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt128;
+       class operator Modulus(const Dividend,Divisor:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128;
+{$ifdef BIG_ENDIAN}
+       case byte of
+        0:(
+         Hi,Lo:TPasDblStrUtilsUInt64;
+        );
+        1:(
+         Q3,Q2,Q1,Q0:TPasDblStrUtilsUInt32;
+        );
+{$else}
+       case byte of
+        0:(
+         Lo,Hi:TPasDblStrUtilsUInt64;
+        );
+        1:(
+         Q0,Q1,Q2,Q3:TPasDblStrUtilsUInt32;
+        );
+ {$endif}
+     end;
+
+constructor TPasDblStrUtilsUInt128.Create(const aHi,aLo:TPasDblStrUtilsUInt64);
 begin
- UMul128(a,b,result);
+ Hi:=aHi;
+ Lo:=aLo;
 end;
 
-{$ifdef CPU64}
+function TPasDblStrUtilsUInt128.CountLeadingZeroBits:TPasDblStrUtilsInt32;
+begin
+ if Hi=0 then begin
+  if Lo=0 then begin
+   result:=64;
+  end else begin
+   result:=CLZQWord(Lo)+64;
+  end;
+ end else begin
+  result:=CLZQWord(Hi);
+ end;
+end;
+
+function TPasDblStrUtilsUInt128.CountTrailingZeroBits:TPasDblStrUtilsInt32;
+begin
+ if Lo=0 then begin
+  result:=CTZQWord(Hi)+64;
+ end else begin
+  result:=CTZQWord(Lo);
+ end;
+end;
+
+function TPasDblStrUtilsUInt128.FloorLog2:TPasDblStrUtilsInt32;
+begin
+ result:=127-CountLeadingZeroBits;
+end;
+
+class operator TPasDblStrUtilsUInt128.Implicit(const a:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt128;
+begin
+ result.Hi:=0;
+ result.Lo:=a;
+end;
+
+class operator TPasDblStrUtilsUInt128.Implicit(const a:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt64;
+begin
+ result:=a.Lo;
+end;
+
+class operator TPasDblStrUtilsUInt128.Explicit(const a:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt128;
+begin
+ result.Hi:=0;
+ result.Lo:=a;
+end;
+
+class operator TPasDblStrUtilsUInt128.Explicit(const a:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt64;
+begin
+ result:=a.Lo;
+end;
+
+class operator TPasDblStrUtilsUInt128.Inc(const a:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128;
+begin
+ result.Lo:=a.Lo+1;
+ result.Hi:=a.Hi+(((a.Lo xor result.Lo) and a.Lo) shr 63);
+end;
+
+class operator TPasDblStrUtilsUInt128.Dec(const a:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128;
+begin
+ result.Lo:=a.Lo-1;
+ result.Hi:=a.Hi-(((result.Lo xor a.Lo) and result.Lo) shr 63);
+end;
+
+class operator TPasDblStrUtilsUInt128.Add(const a,b:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128;
+begin
+ result.Hi:=a.Hi+b.Hi+((((a.Lo and b.Lo) and 1)+(a.Lo shr 1)+(b.Lo shr 1)) shr 63);
+ result.Lo:=a.Lo+b.Lo;
+end;
+
+class operator TPasDblStrUtilsUInt128.Subtract(const a,b:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128;
+begin
+ result.Lo:=a.Lo-b.Lo;
+ result.Hi:=a.Hi-(b.Hi+((((result.Lo and b.Lo) and 1)+(b.Lo shr 1)+(result.Lo shr 1)) shr 63));
+end;
+
+class operator TPasDblStrUtilsUInt128.LeftShift(const a:TPasDblStrUtilsUInt128;Shift:TPasDblStrUtilsInt32):TPasDblStrUtilsUInt128;
+var m0,m1:TPasDblStrUtilsUInt64;
+begin
+ Shift:=Shift and 127;
+ m0:=((((Shift+127) or Shift) and 64) shr 6)-1;
+ m1:=(Shift shr 6)-1;
+ Shift:=Shift and 63;
+ result.Hi:=(a.Lo shl Shift) and not m1;
+ result.Lo:=(a.Lo shl Shift) and m1;
+ result.Hi:=result.Hi or (((a.Hi shl Shift) or ((a.Lo shr (64-Shift)) and m0)) and m1);
+end;
+
+class operator TPasDblStrUtilsUInt128.RightShift(const a:TPasDblStrUtilsUInt128;Shift:TPasDblStrUtilsInt32):TPasDblStrUtilsUInt128;
+var m0,m1:TPasDblStrUtilsUInt64;
+begin
+ Shift:=Shift and 127;
+ m0:=((((Shift+127) or Shift) and 64) shr 6)-1;
+ m1:=(Shift shr 6)-1;
+ Shift:=Shift and 63;
+ result.Lo:=(a.Hi shr Shift) and not m1;
+ result.Hi:=(a.Hi shr Shift) and m1;
+ result.Lo:=result.Lo or (((a.Lo shr Shift) or ((a.Hi shl (64-Shift)) and m0)) and m1);
+end;
+
+class operator TPasDblStrUtilsUInt128.BitwiseAnd(const a,b:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128;
+begin
+ result.Hi:=a.Hi and b.Hi;
+ result.Lo:=a.Lo and b.Lo;
+end;
+
+class operator TPasDblStrUtilsUInt128.BitwiseOr(const a,b:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128;
+begin
+ result.Hi:=a.Hi or b.Hi;
+ result.Lo:=a.Lo or b.Lo;
+end;
+
+class operator TPasDblStrUtilsUInt128.BitwiseXor(const a,b:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128;
+begin
+ result.Hi:=a.Hi xor b.Hi;
+ result.Lo:=a.Lo xor b.Lo;
+end;
+
+class operator TPasDblStrUtilsUInt128.LogicalNot(const a:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128;
+begin
+ result.Hi:=not a.Hi;
+ result.Lo:=not a.Lo;
+end;
+
+class operator TPasDblStrUtilsUInt128.Negative(const a:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128;
+var Temporary:TPasDblStrUtilsUInt128;
+begin
+ Temporary.Hi:=not a.Hi;
+ Temporary.Lo:=not a.Lo;
+ result.Lo:=Temporary.Lo+1;
+ result.Hi:=Temporary.Hi+(((Temporary.Lo xor result.Lo) and Temporary.Lo) shr 63);
+end;
+
+class operator TPasDblStrUtilsUInt128.Positive(const a:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128;
+begin
+ result.Hi:=a.Hi;
+ result.Lo:=a.Lo;
+end;
+
+class operator TPasDblStrUtilsUInt128.Equal(const a,b:TPasDblStrUtilsUInt128):boolean;
+begin
+ result:=(a.Hi=b.Hi) and (a.Lo=b.Lo);
+end;
+
+class operator TPasDblStrUtilsUInt128.NotEqual(const a,b:TPasDblStrUtilsUInt128):boolean;
+begin
+ result:=(a.Hi<>b.Hi) or (a.Lo<>b.Lo);
+end;
+
+class operator TPasDblStrUtilsUInt128.GreaterThan(const a,b:TPasDblStrUtilsUInt128):boolean;
+begin
+ result:=(a.Hi>b.Hi) or ((a.Hi=b.Hi) and (a.Lo>b.Lo));
+end;
+
+class operator TPasDblStrUtilsUInt128.GreaterThanOrEqual(const a,b:TPasDblStrUtilsUInt128):boolean;
+begin
+ result:=(a.Hi>b.Hi) or ((a.Hi=b.Hi) and (a.Lo>=b.Lo));
+end;
+
+class operator TPasDblStrUtilsUInt128.LessThan(const a,b:TPasDblStrUtilsUInt128):boolean;
+begin
+ result:=(a.Hi<b.Hi) or ((a.Hi=b.Hi) and (a.Lo<b.Lo));
+end;
+
+class operator TPasDblStrUtilsUInt128.LessThanOrEqual(const a,b:TPasDblStrUtilsUInt128):boolean;
+begin
+ result:=(a.Hi<=b.Hi) or ((a.Hi=b.Hi) and (a.Lo<=b.Lo));
+end;
+
+class function TPasDblStrUtilsUInt128.Mul64(const a,b:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt128;
+var u0,u1,v0,v1,t,w0,w1,w2:TPasDblStrUtilsUInt64;
+begin
+ u1:=a shr 32;
+ u0:=a and TPasDblStrUtilsUInt64($ffffffff);
+ v1:=b shr 32;
+ v0:=b and TPasDblStrUtilsUInt64($ffffffff);
+ t:=u0*v0;
+ w0:=t and TPasDblStrUtilsUInt64($ffffffff);
+ t:=(u1*v0)+(t shr 32);
+ w1:=t and TPasDblStrUtilsUInt64($ffffffff);
+ w2:=t shr 32;
+ t:=(u0*v1)+w1;
+ result.Hi:=((u1*v1)+w2)+(t shr 32);
+ result.Lo:=(t shl 32)+w0;
+end;
+
+class operator TPasDblStrUtilsUInt128.Multiply(const a,b:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128;
+begin
+ result:=Mul64(a.Lo,b.Lo);
+ inc(result.Hi,(a.Hi*b.Lo)+(a.Lo*b.Hi));
+end;
+
+class procedure TPasDblStrUtilsUInt128.BinaryDivMod128(Dividend,Divisor:TPasDblStrUtilsUInt128;out Quotient,Remainder:TPasDblStrUtilsUInt128);
+var Bit,Shift:TPasDblStrUtilsInt32;
+begin
+ Quotient:=0;
+ Shift:=Divisor.CountLeadingZeroBits-Dividend.CountLeadingZeroBits;
+ Divisor:=Divisor shl Shift;
+ for Bit:=0 to Shift do begin
+  Quotient:=Quotient shl 1;
+  if Dividend>=Divisor then begin
+   Dividend:=Dividend-Divisor;
+   Quotient.Lo:=Quotient.Lo or 1;
+  end;
+  Divisor:=Divisor shr 1;
+ end;
+ Remainder:=Dividend;
+end;
+
+class procedure TPasDblStrUtilsUInt128.BinaryDivMod64(const Dividend:TPasDblStrUtilsUInt128;const Divisor:TPasDblStrUtilsUInt64;out Quotient:TPasDblStrUtilsUInt128;out Remainder:TPasDblStrUtilsUInt64);
+var Bit:TPasDblStrUtilsUInt32;
+begin
+ Quotient:=Dividend;
+ Remainder:=0;
+ for Bit:=1 to 128 do begin
+  Remainder:=(Remainder shl 1) or (ord((Quotient.Hi and $8000000000000000)<>0) and 1);
+  Quotient.Hi:=(Quotient.Hi shl 1) or (Quotient.Lo shr 63);
+  Quotient.Lo:=Quotient.Lo shl 1;
+  if (TPasDblStrUtilsUInt32(Remainder shr 32)>TPasDblStrUtilsUInt32(Divisor shr 32)) or
+     ((TPasDblStrUtilsUInt32(Remainder shr 32)=TPasDblStrUtilsUInt32(Divisor shr 32)) and (TPasDblStrUtilsUInt32(Remainder and $ffffffff)>=TPasDblStrUtilsUInt32(Divisor and $ffffffff))) then begin
+   dec(Remainder,Divisor);
+   Quotient.Lo:=Quotient.Lo or 1;
+  end;
+ end;
+end;
+
+class procedure TPasDblStrUtilsUInt128.DivMod64(const Dividend:TPasDblStrUtilsUInt128;const Divisor:TPasDblStrUtilsUInt64;out Quotient,Remainder:TPasDblStrUtilsUInt64);
+const b=TPasDblStrUtilsUInt64(1) shl 32;
+var u0,u1,v,un1,un0,vn1,vn0,q1,q0,un32,un21,un10,rhat,left,right:TPasDblStrUtilsUInt64;
+    s:NativeInt;
+begin
+ u0:=Dividend.Lo;
+ u1:=Dividend.Hi;
+ v:=Divisor;
+ s:=0;
+ while (v and (TPasDblStrUtilsUInt64(1) shl 63))=0 do begin
+  inc(s);
+  v:=v shl 1;
+ end;
+ v:=Divisor shl s;
+ vn1:=v shr 32;
+ vn0:=v and $ffffffff;
+ if s>0 then begin
+  un32:=(u1 shl s) or (u0 shr (64-s));
+  un10:=u0 shl s;
+ end else begin
+  un32:=u1;
+  un10:=u0;
+ end;
+ un1:=un10 shr 32;
+ un0:=un10 and $ffffffff;
+ q1:=un32 div vn1;
+ rhat:=un32 mod vn1;
+ left:=q1*vn0;
+ right:=(rhat shl 32)+un1;
+ repeat
+  if (q1>=b) or (left>right) then begin
+   dec(q1);
+   inc(rhat,vn1);
+   if rhat<b then begin
+    dec(left,vn0);
+    right:=(rhat shl 32) or un1;
+    continue;
+   end;
+  end;
+  break;
+ until false;
+ un21:=(un32 shl 32)+(un1-(q1*v));
+ q0:=un21 div vn1;
+ rhat:=un21 mod vn1;
+ left:=q0*vn0;
+ right:=(rhat shl 32) or un0;
+ repeat
+  if (q0>=b) or (left>right) then begin
+   dec(q0);
+   inc(rhat,vn1);
+   if rhat<b then begin
+    dec(left,vn0);
+    right:=(rhat shl 32) or un0;
+    continue;
+   end;
+  end;
+  break;
+ until false;
+ Remainder:=((un21 shl 32)+(un0-(q0*v))) shr s;
+ Quotient:=(q1 shl 32) or q0;
+end;
+
+class procedure TPasDblStrUtilsUInt128.DivMod128Ex(Dividend,Divisor:TPasDblStrUtilsUInt128;out Quotient,Remainder:TPasDblStrUtilsUInt128);
+var DivisorLeadingZeroBits:TPasDblStrUtilsInt32;
+    v,u,q:TPasDblStrUtilsUInt128;
+begin
+ if Divisor.Hi=0 then begin
+  if Dividend.Hi<Divisor.Lo then begin
+   Quotient.Hi:=0;
+   Remainder.Hi:=0;
+	 DivMod64(Dividend,Divisor.Lo,Quotient.Lo,Remainder.Lo);
+  end else begin
+   Quotient.Hi:=Dividend.Hi div Divisor.Lo;
+   Dividend.Hi:=Dividend.Hi mod Divisor.Lo;
+	 DivMod64(Dividend,Divisor.Lo,Quotient.Lo,Remainder.Lo);
+   Remainder.Hi:=0;
+  end;
+ end else begin
+  DivisorLeadingZeroBits:=Divisor.CountLeadingZeroBits;
+  v:=Divisor shl DivisorLeadingZeroBits;
+  u:=Dividend shr 1;
+  DivMod64(u,v.Hi,q.Lo,q.Hi);
+  q.Hi:=0;
+  q:=q shr (63-DivisorLeadingZeroBits);
+  if (q.Hi or q.Lo)<>0 then begin
+   dec(q);
+  end;
+	Quotient:=q*Divisor;
+  Remainder:=Dividend-q;
+	if Remainder>=Divisor then begin
+   inc(Quotient);
+   Remainder:=Remainder-Divisor;
+  end;
+ end;
+end;
+
+class procedure TPasDblStrUtilsUInt128.DivMod128(Dividend,Divisor:TPasDblStrUtilsUInt128;out Quotient,Remainder:TPasDblStrUtilsUInt128);
+var DivisorLeadingZeroBits,DividendLeadingZeroBits,DivisorTrailingZeroBits:TPasDblStrUtilsInt32;
+begin
+ DivisorLeadingZeroBits:=Divisor.CountLeadingZeroBits;
+ DividendLeadingZeroBits:=Dividend.CountLeadingZeroBits;
+ DivisorTrailingZeroBits:=Divisor.CountTrailingZeroBits;
+ if DivisorLeadingZeroBits=128 then begin
+  Assert(false);
+  Quotient.Hi:=0;
+  Quotient.Lo:=0;
+	Remainder.Hi:=0;
+	Remainder.Lo:=0;
+ end else if (Dividend.Hi or Divisor.Hi)=0 then begin
+  Quotient.Hi:=0;
+  Remainder.Hi:=0;
+  Quotient.Lo:=Dividend.Lo div Divisor.Lo;
+  Remainder.Lo:=Dividend.Lo mod Divisor.Lo;
+ end else if DivisorLeadingZeroBits=127 then begin
+ 	Quotient:=Dividend;
+  Remainder.Hi:=0;
+  Remainder.Lo:=0;
+ end else if (DivisorTrailingZeroBits+DivisorLeadingZeroBits)=127 then begin
+  Quotient:=Dividend shr DivisorTrailingZeroBits;
+  dec(Divisor);
+  Remainder:=Divisor and Dividend;
+ end else if Dividend<Divisor then begin
+  Quotient.Hi:=0;
+  Quotient.Lo:=0;
+	Remainder:=Dividend;
+ end else if Dividend=Divisor then begin
+  Quotient.Hi:=0;
+  Quotient.Lo:=0;
+	Remainder.Hi:=0;
+	Remainder.Lo:=1;
+ end else if (DivisorLeadingZeroBits-DividendLeadingZeroBits)>5 then begin
+  DivMod128Ex(Dividend,Divisor,Quotient,Remainder);
+ end else begin
+  BinaryDivMod128(Dividend,Divisor,Quotient,Remainder);
+ end;
+end;
+
+class operator TPasDblStrUtilsUInt128.IntDivide(const Dividend:TPasDblStrUtilsUInt128;const Divisor:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt128;
+var Quotient:TPasDblStrUtilsUInt128;
+    Remainder:TPasDblStrUtilsUInt64;
+    Bit:TPasDblStrUtilsUInt32;
+begin
+ if Dividend.Hi=0 then begin
+  result.Hi:=0;
+  if Dividend<Divisor then begin
+   result.Lo:=0;
+  end else begin
+   result.Lo:=Dividend.Lo div Divisor;
+  end;
+ end else begin
+  Quotient:=Dividend;
+  Remainder:=0;
+  for Bit:=1 to 128 do begin
+   Remainder:=(Remainder shl 1) or (ord((Quotient.Hi and $8000000000000000)<>0) and 1);
+   Quotient.Hi:=(Quotient.Hi shl 1) or (Quotient.Lo shr 63);
+   Quotient.Lo:=Quotient.Lo shl 1;
+   if (TPasDblStrUtilsUInt32(Remainder shr 32)>TPasDblStrUtilsUInt32(Divisor shr 32)) or
+      ((TPasDblStrUtilsUInt32(Remainder shr 32)=TPasDblStrUtilsUInt32(Divisor shr 32)) and (TPasDblStrUtilsUInt32(Remainder and $ffffffff)>=TPasDblStrUtilsUInt32(Divisor and $ffffffff))) then begin
+    dec(Remainder,Divisor);
+    Quotient.Lo:=Quotient.Lo or 1;
+   end;
+  end;
+  result:=Quotient;
+ end;
+end;
+
+class operator TPasDblStrUtilsUInt128.IntDivide(const Dividend,Divisor:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128;
+var Remainder:TPasDblStrUtilsUInt128;
+begin
+ TPasDblStrUtilsUInt128.DivMod128(Dividend,Divisor,result,Remainder);
+end;
+
+class operator TPasDblStrUtilsUInt128.Modulus(const Dividend:TPasDblStrUtilsUInt128;const Divisor:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt128;
+var Quotient:TPasDblStrUtilsUInt128;
+    Remainder:TPasDblStrUtilsUInt64;
+    Bit:TPasDblStrUtilsUInt32;
+begin
+ if Dividend.Hi=0 then begin
+  result.Hi:=0;
+  if Dividend<Divisor then begin
+   result.Lo:=Dividend.Lo;
+  end else begin
+   result.Lo:=Dividend.Lo mod Divisor;
+  end;
+ end else begin
+  Quotient:=Dividend;
+  Remainder:=0;
+  for Bit:=1 to 128 do begin
+   Remainder:=(Remainder shl 1) or (ord((Quotient.Hi and $8000000000000000)<>0) and 1);
+   Quotient.Hi:=(Quotient.Hi shl 1) or (Quotient.Lo shr 63);
+   Quotient.Lo:=Quotient.Lo shl 1;
+   if (TPasDblStrUtilsUInt32(Remainder shr 32)>TPasDblStrUtilsUInt32(Divisor shr 32)) or
+      ((TPasDblStrUtilsUInt32(Remainder shr 32)=TPasDblStrUtilsUInt32(Divisor shr 32)) and (TPasDblStrUtilsUInt32(Remainder and $ffffffff)>=TPasDblStrUtilsUInt32(Divisor and $ffffffff))) then begin
+    dec(Remainder,Divisor);
+    Quotient.Lo:=Quotient.Lo or 1;
+   end;
+  end;
+  result:=Remainder;
+ end;
+end;
+
+class operator TPasDblStrUtilsUInt128.Modulus(const Dividend,Divisor:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128;
+var Quotient:TPasDblStrUtilsUInt128;
+begin
+ TPasDblStrUtilsUInt128.DivMod128(Dividend,Divisor,Quotient,result);
+end;
+
+{$if defined(CPU64) or defined(CPUx64) or defined(CPUx8664) or defined(CPUx86_64) or defined(CPUAArch64)}
 function Div5(const x:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt64; {$ifdef caninline}inline;{$endif}
 begin
  result:=x div 5;
@@ -716,6 +1230,11 @@ end;
 function Div10(const x:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt64; {$ifdef caninline}inline;{$endif}
 begin
  result:=x div 10;
+end;
+
+function RoundDiv10(const x:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt64; {$ifdef caninline}inline;{$endif}
+begin
+ result:=(x div 10)+(ord((x mod 10)>=5) and 1);
 end;
 
 function Div100(const x:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt64; {$ifdef caninline}inline;{$endif}
@@ -738,6 +1257,21 @@ begin
  result:=TPasDblStrUtilsUInt32((x-(1000000000*Div1e9(x))) and $ffffffff);
 end;
 {$else}
+function UMulH(const a,b:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt64;
+var u0,u1,v0,v1,t,w1,w2:TPasDblStrUtilsUInt64;
+begin
+ u1:=a shr 32;
+ u0:=a and UInt64($ffffffff);
+ v1:=b shr 32;
+ v0:=b and UInt64($ffffffff);
+ t:=u0*v0;
+ t:=(u1*v0)+(t shr 32);
+ w1:=t and UInt64($ffffffff);
+ w2:=t shr 32;
+ t:=(u0*v1)+w1;
+ result:=((u1*v1)+w2)+(t shr 32);
+end;
+
 function Div5(const x:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt64;
 begin
  result:=UMulH(x,TPasDblStrUtilsUInt64($cccccccccccccccd)) shr 2;
@@ -746,6 +1280,12 @@ end;
 function Div10(const x:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt64;
 begin
  result:=UMulH(x,TPasDblStrUtilsUInt64($cccccccccccccccd)) shr 3;
+end;
+
+function RoundDiv10(const x:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt64; {$ifdef caninline}inline;{$endif}
+begin
+ result:=UMulH(x,TPasDblStrUtilsUInt64($cccccccccccccccd)) shr 3;
+ inc(result,ord((x-(10*result))>=5) and 1);
 end;
 
 function Div100(const x:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt64;
@@ -767,7 +1307,7 @@ function Mod1e9(const x:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt64;
 begin
  result:=TPasDblStrUtilsUInt32(x and $ffffffff)-TPasDblStrUtilsUInt32(1000000000*TPasDblStrUtilsUInt32(Div1e9(x) and $ffffffff));
 end;
-{$endif}
+{$ifend}
 
 function Pow5Factor(aValue:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt32;
 const Inv5:TPasDblStrUtilsUInt64=TPasDblStrUtilsUInt64(14757395258967641293);
@@ -800,6 +1340,13 @@ end;
 function MulShift64(const aM:TPasDblStrUtilsUInt64;const aMul:PPasDblStrUtilsUInt64;const aJ:TPasDblStrUtilsInt32):TPasDblStrUtilsUInt64;
 type TPasDblStrUtilsUInt64s=array[0..1] of TPasDblStrUtilsUInt64;
      PPasDblStrUtilsUInt64s=^TPasDblStrUtilsUInt64s;
+{$if declared(TPasDblStrUtilsUInt128)}
+begin
+ result:=TPasDblStrUtilsUInt64(((TPasDblStrUtilsUInt128.Mul64(aM,PPasDblStrUtilsUInt64s(aMul)^[0]) shr 64)+
+                                TPasDblStrUtilsUInt128.Mul64(aM,PPasDblStrUtilsUInt64s(aMul)^[1])
+                               ) shr (aJ-64));
+end;
+{$else}
 var High0,High1,Low1,Sum:TPasDblStrUtilsUInt64;
 begin
  Low1:=UMul128(aM,PPasDblStrUtilsUInt64s(aMul)^[1],High1);
@@ -810,6 +1357,7 @@ begin
  end;
  result:=ShiftRight128(Sum,High1,aJ-64);
 end;
+{$ifend}
 
 function MulShiftAll64(const aM:TPasDblStrUtilsUInt64;const aMul:PPasDblStrUtilsUInt64;const aJ:TPasDblStrUtilsInt32;out aVP,aVM:TPasDblStrUtilsUInt64;const aMMShift:TPasDblStrUtilsUInt32):TPasDblStrUtilsUInt64;
 begin
@@ -1201,14 +1749,14 @@ begin
  result:=TPasDblStrUtilsDouble(Pointer(@Bits)^);
 end;
 
-function RyuStringToDouble(const aStringValue:TPasDblStrUtilsString;const aOK:PPasDblStrUtilsBoolean=nil):TPasDblStrUtilsDouble;
+function RyuStringToDouble(const aStringValue:TPasDblStrUtilsString;const aOK:PPasDblStrUtilsBoolean=nil;const aStrict:boolean=false):TPasDblStrUtilsDouble;
 const DOUBLE_MANTISSA_BITS=52;
       DOUBLE_EXPONENT_BITS=11;
       DOUBLE_EXPONENT_BIAS=1023;
 var InputStringLength,
     CountBase10MantissaDigits,ExtraCountBase10MantissaDigits,CountBase10ExponentDigits,
     DotPosition,ExponentPosition,
-    Base10MantissaBits,Base10MantissaRemovedBits,
+    Base10MantissaBits,
     Base10Exponent,Position,Base2Exponent,Shift,Temporary,Exponent:TPasDblStrUtilsInt32;
     Base10Mantissa,Base2Mantissa,IEEEMantissa:TPasDblStrUtilsUInt64;
     IEEEExponent,LastRemovedBit:TPasDblStrUtilsUInt32;
@@ -1279,7 +1827,7 @@ begin
     DotPosition:=Position;
    end;
    '0'..'9':begin
-    if CountBase10MantissaDigits<17 then begin
+    if CountBase10MantissaDigits<19 then begin
      Base10Mantissa:=(Base10Mantissa*10)+TPasDblStrUtilsUInt64(TPasDblStrUtilsUInt8(AnsiChar(c))-TPasDblStrUtilsUInt8(AnsiChar('0')));
      if Base10Mantissa<>0 then begin
       inc(CountBase10MantissaDigits);
@@ -1373,15 +1921,12 @@ begin
   end;
   exit;
  end;
- Base10MantissaBits:=FloorLog2(Base10Mantissa);
- if Base10MantissaBits>53 then begin
-  Base10MantissaRemovedBits:=Base10MantissaBits-53;
-  Base10Mantissa:=(Base10Mantissa shr Base10MantissaRemovedBits)+(ord((Base10Mantissa and (TPasDblStrUtilsUInt64(1) shl (Base10MantissaRemovedBits-1)))<>0) and 1);
-  Base10MantissaBits:=53;
- end else begin
-  Base10MantissaRemovedBits:=0;
- end;
  if Base10Exponent>=0 then begin
+  while Base10Exponent>=DOUBLE_POW5_TABLE_SIZE do begin
+   Base10Mantissa:=RoundDiv10(Base10Mantissa);
+   dec(Base10Exponent);
+  end;
+  Base10MantissaBits:=FloorLog2(Base10Mantissa);
   Base2Exponent:=((TPasDblStrUtilsInt32(Base10MantissaBits)+Base10Exponent)+TPasDblStrUtilsInt32(Log2Pow5(Base10Exponent)))-(DOUBLE_MANTISSA_BITS+1);
   Temporary:=((Base2Exponent-Base10Exponent)-CeilLog2Pow5(Base10Exponent))+DOUBLE_POW5_BITCOUNT;
   Assert(Temporary>=0);
@@ -1390,6 +1935,11 @@ begin
                  (((Base2Exponent-Base10Exponent)<64) and
                   MultipleOfPowerOf2(Base10Mantissa,Base2Exponent-Base10Exponent));
  end else begin
+  while (-Base10Exponent)>=DOUBLE_POW5_INV_TABLE_SIZE do begin
+   Base10Mantissa:=RoundDiv10(Base10Mantissa);
+   inc(Base10Exponent);
+  end;
+  Base10MantissaBits:=FloorLog2(Base10Mantissa);
   Base2Exponent:=((TPasDblStrUtilsInt32(Base10MantissaBits)+Base10Exponent)-TPasDblStrUtilsInt32(CeilLog2Pow5(-Base10Exponent)))-(DOUBLE_MANTISSA_BITS+1);
   Temporary:=(((Base2Exponent-Base10Exponent)+CeilLog2Pow5(-Base10Exponent))-1)+DOUBLE_POW5_INV_BITCOUNT;
   assert((-Base10Exponent)<DOUBLE_POW5_INV_TABLE_SIZE);
@@ -1402,18 +1952,17 @@ begin
  end else begin
   IEEEExponent:=Exponent;
  end;
- if IEEEExponent=0 then begin
-  Shift:=1;
- end else begin
-  Shift:=IEEEExponent;
- end;
- inc(IEEEExponent,Base10MantissaRemovedBits);
  if IEEEExponent>$7fe then begin
   result:=UInt64Bits2Double((TPasDblStrUtilsUInt64((ord(SignedMantissa) and 1)) shl (DOUBLE_EXPONENT_BITS+DOUBLE_MANTISSA_BITS)) or (TPasDblStrUtilsUInt64($7ff) shl DOUBLE_MANTISSA_BITS));
   if assigned(aOK) then begin
    aOK^:=true;
   end;
   exit;
+ end;
+ if IEEEExponent=0 then begin
+  Shift:=1;
+ end else begin
+  Shift:=IEEEExponent;
  end;
  Shift:=(Shift-Base2Exponent)-(DOUBLE_EXPONENT_BIAS+DOUBLE_MANTISSA_BITS);
  Assert(Shift>=0);
@@ -1428,7 +1977,7 @@ begin
  end;
  result:=UInt64Bits2Double((TPasDblStrUtilsUInt64(ord(SignedMantissa) and 1) shl (DOUBLE_EXPONENT_BITS+DOUBLE_MANTISSA_BITS)) or (TPasDblStrUtilsUInt64(IEEEExponent) shl DOUBLE_MANTISSA_BITS) or IEEEMantissa);
  if assigned(aOK) then begin
-  aOK^:=(ExtraCountBase10MantissaDigits=0) and (Base10MantissaRemovedBits=0);
+  aOK^:=(not aStrict) or (ExtraCountBase10MantissaDigits=0);
  end;
 end;
 
@@ -2817,7 +3366,7 @@ begin
  end else begin
   if RoundingMode=rmNearest then begin
    TemporaryOK:=false;
-   result:=RyuStringToDouble(StringValue,@TemporaryOK);
+   result:=RyuStringToDouble(StringValue,@TemporaryOK,true);
    if TemporaryOK then begin
     if assigned(OK) then begin
      OK^:=true;

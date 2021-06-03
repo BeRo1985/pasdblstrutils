@@ -298,7 +298,17 @@ begin
  until ValueUI64=0;
 end;
 
+var v:Double;
+    u:UInt64 absolute v;
 begin
+
+{
+ v:=RyuStringToDouble('12345678901234567890');
+ writeln(v:32:16,' ',IntToHex(u));
+ v:=12345678901234567890.0;
+ writeln(v:32:16,' ',IntToHex(u));
+ readln;
+ exit;     //}
 
  TestDataPath:=IncludeTrailingPathDelimiter(ExpandFileName(IncludeTrailingPathDelimiter(IncludeTrailingPathDelimiter(IncludeTrailingPathDelimiter(IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0)))+'..')+'..')+'testdata')));
  writeln('Test data path: ',TestDataPath);
