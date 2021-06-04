@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2021-06-04-01-33-0000                       *
+ *                        Version 2021-06-04-22-51-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -416,13 +416,18 @@ type PPasDblStrUtilsInt8=^TPasDblStrUtilsInt8;
       omRadix
      );
 
-function RyuStringToDouble(const aStringValue:TPasDblStrUtilsString;const aOK:PPasDblStrUtilsBoolean=nil;const aStrict:boolean=false):TPasDblStrUtilsDouble;
+function FallbackStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aRoundingMode:TPasDblStrUtilsRoundingMode=rmNearest;const aOK:PPasDblStrUtilsBoolean=nil;const aBase:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsDouble; overload;
+function FallbackStringToDouble(const aStringValue:TPasDblStrUtilsString;const aRoundingMode:TPasDblStrUtilsRoundingMode=rmNearest;const aOK:PPasDblStrUtilsBoolean=nil;const aBase:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsDouble; overload;
+
+function RyuStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aOK:PPasDblStrUtilsBoolean=nil;const aStrict:boolean=false):TPasDblStrUtilsDouble; overload;
+function RyuStringToDouble(const aStringValue:TPasDblStrUtilsString;const aOK:PPasDblStrUtilsBoolean=nil;const aStrict:boolean=false):TPasDblStrUtilsDouble; overload;
 
 function RyuDoubleToString(const aValue:TPasDblStrUtilsDouble;const aExponential:boolean=true):TPasDblStrUtilsString;
 
-function ConvertStringToDouble(const StringValue:TPasDblStrUtilsString;const RoundingMode:TPasDblStrUtilsRoundingMode=rmNearest;const OK:PPasDblStrUtilsBoolean=nil;const Base:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsDouble;
+function ConvertStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aRoundingMode:TPasDblStrUtilsRoundingMode=rmNearest;const aOK:PPasDblStrUtilsBoolean=nil;const aBase:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsDouble; overload;
+function ConvertStringToDouble(const aStringValue:TPasDblStrUtilsString;const aRoundingMode:TPasDblStrUtilsRoundingMode=rmNearest;const aOK:PPasDblStrUtilsBoolean=nil;const aBase:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsDouble; overload;
 
-function ConvertDoubleToString(const aValue:TPasDblStrUtilsDouble;const OutputMode:TPasDblStrUtilsOutputMode=omStandard;RequestedDigits:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsString;
+function ConvertDoubleToString(const aValue:TPasDblStrUtilsDouble;const aOutputMode:TPasDblStrUtilsOutputMode=omStandard;aRequestedDigits:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsString;
 
 implementation
 
@@ -1221,6 +1226,725 @@ begin
  TPasDblStrUtilsUInt128.DivMod128(Dividend,Divisor,Quotient,result);
 end;
 
+type TIEEEFormat=record
+      Bytes:TPasDblStrUtilsInt32;
+      Mantissa:TPasDblStrUtilsInt32;
+      Explicit:TPasDblStrUtilsInt32;
+      Exponent:TPasDblStrUtilsInt32;
+     end;
+     PIEEEFormat=^TIEEEFormat;
+
+const // exponent bits = round(4*log2(k)) - 13
+      IEEEFormat8:TIEEEFormat=(Bytes:1;Mantissa:3;Explicit:0;Exponent:4);
+      IEEEFormat16:TIEEEFormat=(Bytes:2;Mantissa:10;Explicit:0;Exponent:5);
+      IEEEFormat32:TIEEEFormat=(Bytes:4;Mantissa:23;Explicit:0;Exponent:8);
+      IEEEFormat64:TIEEEFormat=(Bytes:8;Mantissa:52;Explicit:0;Exponent:11);
+      IEEEFormat80:TIEEEFormat=(Bytes:10;Mantissa:63;Explicit:1;Exponent:15);
+      IEEEFormat128:TIEEEFormat=(Bytes:16;Mantissa:112;Explicit:0;Exponent:15);
+      IEEEFormat256:TIEEEFormat=(Bytes:32;Mantissa:236;Explicit:0;Exponent:19);
+      IEEEFormat512:TIEEEFormat=(Bytes:64;Mantissa:488;Explicit:0;Exponent:23);
+
+function StringToFloat(const aFloatString:PPasDblStrUtilsChar;const aFloatStringLength:TPasDblStrUtilsInt32;out aFloatValue;const aIEEEFormat:TIEEEFormat;const RoundMode:TPasDblStrUtilsRoundingMode=rmNearest;const aDenormalsAreZero:TPasDblStrUtilsBoolean=false;const aBase:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsBoolean;
+const LIMB_BITS=32;
+      LIMB_BYTES=4;
+      LIMB_BYTES_MASK=3;
+      LIMB_BYTES_SHIFT=2; // 2^2 = 4
+      LIMB_SHIFT=5;
+      LIMB_TOP_BIT=TPasDblStrUtilsUInt32(TPasDblStrUtilsUInt32(1) shl (LIMB_BITS-1));
+      LIMB_MASK=TPasDblStrUtilsUInt32(not 0);
+      LIMB_ALL_BYTES=TPasDblStrUtilsUInt32($01010101);
+      MANT_LIMBS=24;//6;
+      MANT_DIGITS=208;//52;
+      FL_ZERO=0;
+      FL_DENORMAL=1;
+      FL_NORMAL=2;
+      FL_INFINITY=3;
+      FL_QNAN=4;
+      FL_SNAN=5;
+type PFPLimb=^TFPLimb;
+     TFPLimb=TPasDblStrUtilsUInt32;
+     PFPLimbs=^TFPLimbs;
+     TFPLimbs=array[0..65535] of TFPLimb;
+     PFP2Limb=^TFP2Limb;
+     TFP2Limb=uint64;
+     PMantissa=^TMantissa;
+     TMantissa=array[0..MANT_LIMBS-1] of TFPLimb;
+ function MantissaMultiply(var aMantissaA,aMantissaB:TMantissa):TPasDblStrUtilsInt32;
+ var i,j:TPasDblStrUtilsInt32;
+     n:TFP2Limb;
+     Temp:array[0..(MANT_DIGITS*2)] of TFP2Limb;
+ begin
+  for i:=low(Temp) to high(Temp) do begin
+   Temp[i]:=0;
+  end;
+  for i:=0 to MANT_LIMBS-1 do begin
+   for j:=0 to MANT_LIMBS-1 do begin
+    n:=TFP2Limb(aMantissaA[i])*TFP2Limb(aMantissaB[j]);
+    inc(Temp[i+j],n shr LIMB_BITS);
+    inc(Temp[i+j+1],TFPLimb(n and LIMB_MASK));
+   end;
+  end;
+  for i:=(MANT_LIMBS*2) downto 1 do begin
+   inc(Temp[i-1],Temp[i] shr LIMB_BITS);
+   Temp[i]:=Temp[i] and LIMB_MASK;
+  end;
+  if (Temp[0] and LIMB_TOP_BIT)<>0 then begin
+   for i:=0 to MANT_LIMBS-1 do begin
+    aMantissaA[i]:=Temp[i] and LIMB_MASK;
+   end;
+   result:=0;
+  end else begin
+   for i:=0 to MANT_LIMBS-1 do begin
+    aMantissaA[i]:=(Temp[i] shl 1) or (ord((Temp[i+1] and LIMB_TOP_BIT)<>0) and 1);
+   end;
+   result:=-1;
+  end;
+ end;
+ function ReadExponent(const aExponentStringValue:PPasDblStrUtilsChar;const aExponentStringLength,aExponentStringStartPosition,aMaxValue:TPasDblStrUtilsInt32):TPasDblStrUtilsInt32;
+ var ExponentStringPosition:TPasDblStrUtilsInt32;
+     Negative:TPasDblStrUtilsBoolean;
+ begin
+  result:=0;
+  Negative:=false;
+  ExponentStringPosition:=aExponentStringStartPosition;
+  if (ExponentStringPosition<aExponentStringLength) and (aExponentStringValue[ExponentStringPosition]='+') then begin
+   inc(ExponentStringPosition);
+  end else if (ExponentStringPosition<aExponentStringLength) and (aExponentStringValue[ExponentStringPosition]='-') then begin
+   inc(ExponentStringPosition);
+   Negative:=true;
+  end;
+  while ExponentStringPosition<aExponentStringLength do begin
+   case aExponentStringValue[ExponentStringPosition] of
+    '0'..'9':begin
+     if result<aMaxValue then begin
+      result:=(result*10)+(TPasDblStrUtilsUInt8(ansichar(aExponentStringValue[ExponentStringPosition]))-TPasDblStrUtilsUInt8(ansichar('0')));
+      if result>aMaxValue then begin
+       result:=aMaxValue;
+      end;
+     end;
+    end;
+    else begin
+     result:=$7fffffff;
+     exit;
+    end;
+   end;
+   inc(ExponentStringPosition);
+  end;
+  if Negative then begin
+   result:=-result;
+  end;
+ end;
+ function ProcessDecimal(const aFloatStringValue:PPasDblStrUtilsChar;const aFloatStringLength:TPasDblStrUtilsInt32;const aFloatStringStartPosition:TPasDblStrUtilsInt32;out aMantissa:TMantissa;var aExponent:TPasDblStrUtilsInt32):TPasDblStrUtilsBoolean;
+ var FloatStringPosition,TenPower,TwoPower,ExtraTwos,ExponentValue,MantissaPosition,DigitPos,StoredDigitPos,DigitPosBackwards,
+     Value:TPasDblStrUtilsInt32;
+     Bit,Carry:TFPLimb;
+     Started,SeenDot{,Warned}:TPasDblStrUtilsBoolean;
+     //m:PFPLimb;
+     Digits:array[0..MANT_DIGITS-1] of TPasDblStrUtilsUInt8;
+     Mult:TMantissa;
+ begin
+  //Warned:=false;
+  TenPower:=0;
+  DigitPos:=0;
+  Started:=false;
+  SeenDot:=false;
+  FloatStringPosition:=aFloatStringStartPosition;
+  while FloatStringPosition<aFloatStringLength do begin
+   case aFloatStringValue[FloatStringPosition] of
+    '.':begin
+     if SeenDot then begin
+      result:=false;
+      exit;
+     end else begin
+      SeenDot:=true;
+     end;
+    end;
+    '0'..'9':begin
+     if (aFloatStringValue[FloatStringPosition]='0') and not Started then begin
+      if SeenDot then begin
+       dec(TenPower);
+      end;
+     end else begin
+      Started:=true;
+      if DigitPos<MANT_DIGITS then begin
+       Digits[DigitPos]:=TPasDblStrUtilsUInt8(ansichar(aFloatStringValue[FloatStringPosition]))-TPasDblStrUtilsUInt8(ansichar('0'));
+       inc(DigitPos);
+      end else begin
+       //Warned:=true;
+      end;
+      if not SeenDot then begin
+       inc(TenPower);
+      end;
+     end;
+    end;
+    'e','E':begin
+     break;
+    end;
+    else begin
+     result:=false;
+     exit;
+    end;
+   end;
+   inc(FloatStringPosition);
+  end;
+  if FloatStringPosition<aFloatStringLength then begin
+   if aFloatStringValue[FloatStringPosition] in ['e','E'] then begin
+    inc(FloatStringPosition);
+    ExponentValue:=ReadExponent(aFloatStringValue,aFloatStringLength,FloatStringPosition,5000);
+    if ExponentValue=$7fffffff then begin
+     result:=false;
+     exit;
+    end;
+    inc(TenPower,ExponentValue);
+   end else begin
+    result:=false;
+    exit;
+   end;
+  end;
+  for MantissaPosition:=0 to MANT_LIMBS-1 do begin
+   aMantissa[MantissaPosition]:=0;
+  end;
+  Bit:=LIMB_TOP_BIT;
+  StoredDigitPos:=0;
+  Started:=false;
+  TwoPower:=0;
+  MantissaPosition:=0;
+  while MantissaPosition<MANT_LIMBS do begin
+   Carry:=0;
+   while (DigitPos>StoredDigitPos) and (Digits[DigitPos-1]=0) do begin
+    dec(DigitPos);
+   end;
+   if DigitPos<=StoredDigitPos then begin
+    break;
+   end;
+   DigitPosBackwards:=DigitPos;
+   while DigitPosBackwards>StoredDigitPos do begin
+    dec(DigitPosBackwards);
+    Value:=(2*Digits[DigitPosBackwards])+Carry;
+    if Value>=10 then begin
+     dec(Value,10);
+     Carry:=1;
+    end else begin
+     Carry:=0;
+    end;
+    Digits[DigitPosBackwards]:=Value;
+   end;
+   if Carry<>0 then begin
+    aMantissa[MantissaPosition]:=aMantissa[MantissaPosition] or Bit;
+    Started:=true;
+   end;
+   if Started then begin
+    if Bit=1 then begin
+     Bit:=LIMB_TOP_BIT;
+     inc(MantissaPosition);
+    end else begin
+     Bit:=Bit shr 1;
+    end;
+   end else begin
+    dec(TwoPower);
+   end;
+  end;
+  inc(TwoPower,TenPower);
+  if TenPower<0 then begin
+   for MantissaPosition:=0 to MANT_LIMBS-2 do begin
+    Mult[MantissaPosition]:=(TPasDblStrUtilsUInt32($cc)*LIMB_ALL_BYTES);
+   end;
+   Mult[MANT_LIMBS-1]:=(TPasDblStrUtilsUInt32($cc)*LIMB_ALL_BYTES)+1;
+   ExtraTwos:=-2;
+   TenPower:=-TenPower;
+  end else if TenPower>0 then begin
+   Mult[0]:=TPasDblStrUtilsUInt32(5) shl (LIMB_BITS-3);
+   for MantissaPosition:=1 to MANT_LIMBS-1 do begin
+    Mult[MantissaPosition]:=0;
+   end;
+   ExtraTwos:=3;
+  end else begin
+   ExtraTwos:=0;
+  end;
+  while TenPower<>0 do begin
+   if (TenPower and 1)<>0 then begin
+    inc(TwoPower,ExtraTwos+MantissaMultiply(aMantissa,Mult));
+   end;
+   inc(ExtraTwos,ExtraTwos+MantissaMultiply(Mult,Mult));
+   TenPower:=TenPower shr 1;
+  end;
+  aExponent:=TwoPower;
+  result:=true;
+ end;
+ function ProcessNonDecimal(const aFloatStringValue:PPasDblStrUtilsChar;const aFloatStringLength:TPasDblStrUtilsInt32;const aFloatStringStartPosition,aBits:TPasDblStrUtilsInt32;out aMantissa:TMantissa;var aExponent:TPasDblStrUtilsInt32):TPasDblStrUtilsBoolean;
+ const Log2Table:array[0..15] of TPasDblStrUtilsInt32=(-1,0,1,1,2,2,2,2,3,3,3,3,3,3,3,3);
+ var FloatStringPosition,TwoPower,ExponentValue,MantissaPosition,Value,Radix,MantissaShift,l:TPasDblStrUtilsInt32;
+     SeenDigit,SeenDot:TPasDblStrUtilsBoolean;
+     MantissaPointer:PFPLimb;
+     Mult:array[0..MANT_LIMBS] of TFPLimb;
+ begin
+  for MantissaPosition:=0 to MANT_LIMBS do begin
+   Mult[MantissaPosition]:=0;
+  end;
+  Radix:=1 shl aBits;
+  TwoPower:=0;
+  MantissaShift:=0;
+  MantissaPointer:=@Mult[0];
+  SeenDigit:=false;
+  SeenDot:=false;
+  FloatStringPosition:=aFloatStringStartPosition;
+  while FloatStringPosition<aFloatStringLength do begin
+   case aFloatStringValue[FloatStringPosition] of
+    '.':begin
+     if SeenDot then begin
+      result:=false;
+      exit;
+     end else begin
+      SeenDot:=true;
+     end;
+    end;
+    '0'..'9','a'..'f','A'..'F':begin
+     Value:=TPasDblStrUtilsUInt8(ansichar(aFloatStringValue[FloatStringPosition]));
+     if Value in [TPasDblStrUtilsUInt8(ansichar('0'))..TPasDblStrUtilsUInt8(ansichar('9'))] then begin
+      dec(Value,TPasDblStrUtilsUInt8(ansichar('0')));
+     end else if Value in [TPasDblStrUtilsUInt8(ansichar('a'))..TPasDblStrUtilsUInt8(ansichar('f'))] then begin
+      Value:=(Value-TPasDblStrUtilsUInt8(ansichar('a')))+$a;
+     end else if Value in [TPasDblStrUtilsUInt8(ansichar('A'))..TPasDblStrUtilsUInt8(ansichar('F'))] then begin
+      Value:=(Value-TPasDblStrUtilsUInt8(ansichar('A')))+$a;
+     end else begin
+      result:=false;
+      exit;
+     end;
+     if Value<Radix then begin
+      if (Value<>0) and not SeenDigit then begin
+       l:=Log2Table[Value];
+       SeenDigit:=true;
+       MantissaPointer:=@Mult[0];
+       MantissaShift:=(LIMB_BITS-1)-l;
+       if SeenDot then begin
+        TwoPower:=(TwoPower-aBits)+l;
+       end else begin
+        TwoPower:=(l+1)-aBits;
+       end;
+      end;
+      if SeenDigit then begin
+       if MantissaShift<=0 then begin
+        MantissaPointer^:=MantissaPointer^ or TPasDblStrUtilsUInt32(TPasDblStrUtilsUInt32(Value) shr TPasDblStrUtilsUInt32(-MantissaShift));
+        inc(MantissaPointer);
+        if TPasDblStrUtilsPtrUInt(MantissaPointer)>TPasDblStrUtilsPtrUInt(pointer(@Mult[MANT_LIMBS])) then begin
+         MantissaPointer:=@Mult[MANT_LIMBS];
+        end;
+        inc(MantissaShift,LIMB_BITS);
+       end;
+       MantissaPointer^:=MantissaPointer^ or TPasDblStrUtilsUInt32(TPasDblStrUtilsUInt32(Value) shl TPasDblStrUtilsUInt32(MantissaShift));
+       dec(MantissaShift,aBits);
+       if not SeenDot then begin
+        inc(TwoPower,aBits);
+       end;
+      end else begin
+       if SeenDot then begin
+        dec(TwoPower,aBits);
+       end;
+      end;
+     end else begin
+      result:=false;
+      exit;
+     end;
+    end;
+    'p','P':begin
+     break;
+    end;
+    else begin
+     result:=false;
+     exit;
+    end;
+   end;
+   inc(FloatStringPosition);
+  end;
+  if FloatStringPosition<aFloatStringLength then begin
+   if aFloatStringValue[FloatStringPosition] in ['p','P'] then begin
+    inc(FloatStringPosition);
+    ExponentValue:=ReadExponent(aFloatStringValue,aFloatStringLength,FloatStringPosition,20000);
+    if ExponentValue=$7fffffff then begin
+     result:=false;
+     exit;
+    end;
+    inc(TwoPower,ExponentValue);
+   end else begin
+    result:=false;
+    exit;
+   end;
+  end;
+  if SeenDigit then begin
+   for MantissaPosition:=0 to MANT_LIMBS-1 do begin
+    aMantissa[MantissaPosition]:=Mult[MantissaPosition];
+   end;
+   aExponent:=TwoPower;
+  end else begin
+   for MantissaPosition:=0 to MANT_LIMBS-1 do begin
+    aMantissa[MantissaPosition]:=0;
+   end;
+   aExponent:=0;
+  end;
+  result:=true;
+ end;
+ procedure MantissaShiftRight(var aMantissa:TMantissa;const aShift:TPasDblStrUtilsInt32);
+ var Next,Current:TFPLimb;
+     Index,ShiftRight,ShiftLeft,ShiftOffset:TPasDblStrUtilsInt32;
+ begin
+  Index:=0;
+  ShiftRight:=aShift and (LIMB_BITS-1);
+  ShiftLeft:=LIMB_BITS-ShiftRight;
+  ShiftOffset:=aShift shr LIMB_SHIFT;
+  if ShiftRight=0 then begin
+   if ShiftOffset<>0 then begin
+    Index:=MANT_LIMBS-1;
+    while Index>=ShiftOffset do begin
+     aMantissa[Index]:=aMantissa[Index-ShiftOffset];
+     dec(Index);
+    end;
+   end;
+  end else begin
+   Next:=aMantissa[(MANT_LIMBS-1)-ShiftOffset] shr ShiftRight;
+   Index:=MANT_LIMBS-1;
+   while Index>ShiftOffset do begin
+    Current:=aMantissa[(Index-ShiftOffset)-1];
+    aMantissa[Index]:=(Current shl ShiftLeft) or Next;
+    Next:=Current shr ShiftRight;
+    dec(Index);
+   end;
+   aMantissa[Index]:=Next;
+   dec(Index);
+  end;
+  while Index>=0 do begin
+   aMantissa[Index]:=0;
+   dec(Index);
+  end;
+ end;
+ procedure MantissaSetBit(var aMantissa:TMantissa;const aBit:TPasDblStrUtilsInt32); {$ifdef caninline}inline;{$endif}
+ begin
+  aMantissa[aBit shr LIMB_SHIFT]:=aMantissa[aBit shr LIMB_SHIFT] or (LIMB_TOP_BIT shr (aBit and (LIMB_BITS-1)));
+ end;
+ function MantissaTestBit(const aMantissa:TMantissa;const aBit:TPasDblStrUtilsInt32):TPasDblStrUtilsBoolean; {$ifdef caninline}inline;{$endif}
+ begin
+  result:=((aMantissa[aBit shr LIMB_SHIFT] shr ((not aBit) and (LIMB_BITS-1))) and 1)<>0;
+ end;
+ function MantissaIsZero(const aMantissa:TMantissa):TPasDblStrUtilsBoolean;
+ var Index:TPasDblStrUtilsInt32;
+ begin
+  result:=true;
+  for Index:=0 to MANT_LIMBS-1 do begin
+   if aMantissa[Index]<>0 then begin
+    result:=false;
+    exit;
+   end;
+  end;
+ end;
+ procedure MantissaRound(const Negative:TPasDblStrUtilsBoolean;var Mantissa:TMantissa;const BitPos:TPasDblStrUtilsInt32);
+ var Index,IndexSubBitPos:TPasDblStrUtilsInt32;
+     Bit:TFPLimb;
+  function RoundAbsDown:TPasDblStrUtilsBoolean;
+  var OtherIndex:TPasDblStrUtilsInt32;
+  begin
+   Mantissa[Index]:=Mantissa[Index] and not (Bit-1);
+   for OtherIndex:=Index+1 to MANT_LIMBS-1 do begin
+    Mantissa[OtherIndex]:=0;
+   end;
+   result:=false;
+  end;
+  function RoundAbsUp:TPasDblStrUtilsBoolean;
+  var OtherIndex:TPasDblStrUtilsInt32;
+  begin
+   Mantissa[Index]:=(Mantissa[Index] and not (Bit-1))+Bit;
+   for OtherIndex:=Index+1 to MANT_LIMBS-1 do begin
+    Mantissa[OtherIndex]:=0;
+   end;
+   while (Index>0) and (Mantissa[Index]=0) do begin
+    dec(Index);
+    inc(Mantissa[Index]);
+   end;
+   result:=Mantissa[0]=0;
+  end;
+  function RoundTowardsInfinity:TPasDblStrUtilsBoolean;
+  var OtherIndex:TPasDblStrUtilsInt32;
+      m:TFPLimb;
+  begin
+   m:=Mantissa[Index] and ((Bit shl 1)-1);
+   for OtherIndex:=Index+1 to MANT_LIMBS-1 do begin
+    m:=m or Mantissa[OtherIndex];
+   end;
+   if m<>0 then begin
+    result:=RoundAbsUp;
+   end else begin
+    result:=RoundAbsDown;
+   end;
+  end;
+  function RoundNear:TPasDblStrUtilsBoolean;
+  var j:TPasDblStrUtilsInt32;
+      m:TPasDblStrUtilsUInt32;
+  begin
+   if (Mantissa[Index] and Bit)<>0 then begin
+    Mantissa[Index]:=Mantissa[Index] and not Bit;
+    m:=Mantissa[Index] and ((Bit shl 1)-1);
+    for j:=Index+1 to MANT_LIMBS-1 do begin
+     m:=m or Mantissa[j];
+    end;
+    Mantissa[Index]:=Mantissa[Index] or Bit;
+    if m<>0 then begin
+     result:=RoundAbsUp;
+    end else begin
+     if MantissaTestBit(Mantissa,BitPos-1) then begin
+      result:=RoundAbsUp;
+     end else begin
+      result:=RoundAbsDown;
+     end;
+    end;
+   end else begin
+    result:=RoundAbsDown;
+   end;
+  end;
+ begin
+  Index:=BitPos shr LIMB_SHIFT;
+  IndexSubBitPos:=BitPos and (LIMB_BITS-1);
+  Bit:=LIMB_TOP_BIT shr IndexSubBitPos;
+  case RoundMode of
+   rmNearest:begin
+    result:=RoundNear;
+   end;
+   rmTruncate:begin
+    result:=RoundAbsDown;
+   end;
+   rmUp:begin
+    if Negative then begin
+     result:=RoundAbsDown;
+    end else begin
+     result:=RoundTowardsInfinity;
+    end;
+   end;
+   rmDown:begin
+    if Negative then begin
+     result:=RoundAbsUp;
+    end else begin
+     result:=RoundTowardsInfinity;
+    end;
+   end;
+   else begin
+    result:=false;
+   end;
+  end;
+ end;
+ function ProcessToPackedBCD(const aFloatStringValue:PPasDblStrUtilsChar;const aFloatStringLength:TPasDblStrUtilsInt32;const aFloatStringStartPosition:TPasDblStrUtilsInt32;aResultBytes:PPasDblStrUtilsUInt8;const aNegative:TPasDblStrUtilsBoolean):TPasDblStrUtilsBoolean;
+ var FloatStringPosition,Count,LoValue,Value:TPasDblStrUtilsInt32;
+ begin
+  result:=false;
+  if aIEEEFormat.Bytes<>10 then begin
+   exit;
+  end;
+  FloatStringPosition:=aFloatStringStartPosition;
+  while FloatStringPosition<aFloatStringLength do begin
+   case aFloatString[FloatStringPosition] of
+    '0'..'9':begin
+     inc(FloatStringPosition);
+    end;
+    else begin
+     exit;
+    end;
+   end;
+  end;
+  LoValue:=-1;
+  Count:=0;
+  while FloatStringPosition>aFloatStringStartPosition do begin
+   dec(FloatStringPosition);
+   Value:=TPasDblStrUtilsUInt8(ansichar(aFloatStringValue[FloatStringPosition]))-TPasDblStrUtilsUInt8(ansichar('0'));
+   if LoValue<0 then begin
+    LoValue:=Value;
+   end else begin
+    if Count<9 then begin
+     aResultBytes^:=LoValue or (Value shl 4);
+     inc(aResultBytes);
+    end;
+    inc(Count);
+    LoValue:=-1;
+   end;
+  end;
+  if LoValue>=0 then begin
+   if Count<9 then begin
+    aResultBytes^:=LoValue;
+    inc(aResultBytes);
+   end;
+   inc(Count);
+  end;
+  while Count<9 do begin
+   aResultBytes^:=0;
+   inc(aResultBytes);
+   inc(Count);
+  end;
+  if aNegative then begin
+   aResultBytes^:=$80;
+  end else begin
+   aResultBytes^:=0;
+  end;
+  result:=true;
+ end;
+var OK:TPasDblStrUtilsBoolean;
+    FloatStringPosition,Exponent,ExpMax,FloatType,Shift,Bits,OnePos,i:TPasDblStrUtilsInt32;
+    OneMask:TFPLimb;
+    Negative:TPasDblStrUtilsBoolean;
+    Mantissa:TMantissa;
+    b:PPasDblStrUtilsUInt8;
+begin
+ result:=false;
+ Bits:=aIEEEFormat.Bytes shl 3;
+ OneMask:=LIMB_TOP_BIT shr ((aIEEEFormat.Explicit+aIEEEFormat.Exponent) and (LIMB_BITS-1));
+ OnePos:=(aIEEEFormat.Explicit+aIEEEFormat.Exponent) shr LIMB_SHIFT;
+ FloatStringPosition:=0;
+ while (FloatStringPosition<aFloatStringLength) and (aFloatString[FloatStringPosition] in [#1..#32]) do begin
+  inc(FloatStringPosition);
+ end;
+ Negative:=false;
+ while (FloatStringPosition<aFloatStringLength) and (aFloatString[FloatStringPosition] in ['+','-']) do begin
+  if aFloatString[FloatStringPosition]='-' then begin
+   Negative:=not Negative;
+  end;
+  inc(FloatStringPosition);
+ end;
+ ExpMax:=1 shl (aIEEEFormat.Exponent-1);
+ if ((FloatStringPosition+2)<aFloatStringLength) and ((aFloatString[FloatStringPosition] in ['I','i']) and (aFloatString[FloatStringPosition+1] in ['N','n']) and (aFloatString[FloatStringPosition+2] in ['F','f'])) then begin
+  FloatType:=FL_INFINITY;
+ end else if ((FloatStringPosition+2)<aFloatStringLength) and ((aFloatString[FloatStringPosition] in ['N','n']) and (aFloatString[FloatStringPosition+1] in ['A','a']) and (aFloatString[FloatStringPosition+2] in ['N','n'])) then begin
+  FloatType:=FL_QNAN;
+ end else if ((FloatStringPosition+3)<aFloatStringLength) and ((aFloatString[FloatStringPosition] in ['S','s']) and (aFloatString[FloatStringPosition+1] in ['N','n']) and (aFloatString[FloatStringPosition+2] in ['A','a']) and (aFloatString[FloatStringPosition+3] in ['N','n'])) then begin
+  FloatType:=FL_SNAN;
+ end else if ((FloatStringPosition+3)<aFloatStringLength) and ((aFloatString[FloatStringPosition] in ['Q','q']) and (aFloatString[FloatStringPosition+1] in ['N','n']) and (aFloatString[FloatStringPosition+2] in ['A','a']) and (aFloatString[FloatStringPosition+3] in ['N','n'])) then begin
+  FloatType:=FL_QNAN;
+ end else begin
+  case aBase of
+   2:begin
+    OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,1,Mantissa,Exponent);
+   end;
+   4:begin
+    OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,2,Mantissa,Exponent);
+   end;
+   8:begin
+    OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,3,Mantissa,Exponent);
+   end;
+   10:begin
+    OK:=ProcessDecimal(aFloatString,aFloatStringLength,FloatStringPosition,Mantissa,Exponent);
+   end;
+   16:begin
+    OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,4,Mantissa,Exponent);
+   end;
+   else begin
+    if ((FloatStringPosition+1)<aFloatStringLength) and ((aFloatString[FloatStringPosition]='0') and (aFloatString[FloatStringPosition+1] in ['h','H','x','X'])) then begin
+     inc(FloatStringPosition,2);
+     OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,4,Mantissa,Exponent);
+    end else if ((FloatStringPosition+1)<aFloatStringLength) and ((aFloatString[FloatStringPosition]='0') and (aFloatString[FloatStringPosition+1] in ['o','O','q','Q'])) then begin
+     inc(FloatStringPosition,2);
+     OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,3,Mantissa,Exponent);
+    end else if ((FloatStringPosition+1)<aFloatStringLength) and ((aFloatString[FloatStringPosition]='0') and (aFloatString[FloatStringPosition+1] in ['b','B','y','Y'])) then begin
+     inc(FloatStringPosition,2);
+     OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,1,Mantissa,Exponent);
+    end else if ((FloatStringPosition+1)<aFloatStringLength) and ((aFloatString[FloatStringPosition]='0') and (aFloatString[FloatStringPosition+1] in ['d','D','t','T'])) then begin
+     inc(FloatStringPosition,2);
+     OK:=ProcessDecimal(aFloatString,aFloatStringLength,FloatStringPosition,Mantissa,Exponent);
+    end else if ((FloatStringPosition+1)<aFloatStringLength) and ((aFloatString[FloatStringPosition]='0') and (aFloatString[FloatStringPosition+1] in ['p','P'])) then begin
+     inc(FloatStringPosition,2);
+     result:=ProcessToPackedBCD(aFloatString,aFloatStringLength,FloatStringPosition,pointer(@aFloatValue),Negative);
+     exit;
+    end else if (FloatStringPosition<aFloatStringLength) and (aFloatString[FloatStringPosition]='$') then begin
+     inc(FloatStringPosition);
+     OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,4,Mantissa,Exponent);
+    end else if (FloatStringPosition<aFloatStringLength) and (aFloatString[FloatStringPosition]='&') then begin
+     inc(FloatStringPosition);
+     OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,3,Mantissa,Exponent);
+    end else if (FloatStringPosition<aFloatStringLength) and (aFloatString[FloatStringPosition]='%') then begin
+     inc(FloatStringPosition);
+     OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,1,Mantissa,Exponent);
+    end else begin
+     OK:=ProcessDecimal(aFloatString,aFloatStringLength,FloatStringPosition,Mantissa,Exponent);
+    end;
+   end;
+  end;
+  if OK then begin
+   if (Mantissa[0] and LIMB_TOP_BIT)<>0 then begin
+    dec(Exponent);
+    if (Exponent>=(2-ExpMax)) and (Exponent<=ExpMax) then begin
+     FloatType:=FL_NORMAL;
+    end else if Exponent>0 then begin
+     FloatType:=FL_INFINITY;
+    end else begin
+     FloatType:=FL_DENORMAL;
+    end;
+   end else begin
+    FloatType:=FL_ZERO;
+   end;
+  end else begin
+   FloatType:=FL_QNAN;
+  end;
+ end;
+ repeat
+  case FloatType of
+   FL_ZERO:begin
+    FillChar(Mantissa,SizeOf(Mantissa),#0);
+   end;
+   FL_DENORMAL:begin
+    Shift:=aIEEEFormat.Explicit-((Exponent+ExpMax)-(aIEEEFormat.Exponent+2));
+    MantissaShiftRight(Mantissa,Shift);
+    MantissaRound(Negative,Mantissa,Bits);
+    if (Mantissa[OnePos] and OneMask)<>0 then begin
+     Exponent:=1;
+     if aIEEEFormat.Explicit=0 then begin
+      Mantissa[OnePos]:=Mantissa[OnePos] and not OneMask;
+     end;
+     Mantissa[0]:=Mantissa[0] or (TPasDblStrUtilsUInt32(Exponent) shl ((LIMB_BITS-1)-aIEEEFormat.Exponent));
+    end else begin
+     if aDenormalsAreZero or MantissaIsZero(Mantissa) then begin
+      FloatType:=FL_ZERO;
+      continue;
+     end;
+    end;
+   end;
+   FL_NORMAL:begin
+    inc(Exponent,ExpMax-1);
+    MantissaShiftRight(Mantissa,aIEEEFormat.Exponent+aIEEEFormat.Explicit);
+    MantissaRound(Negative,Mantissa,Bits);
+    if MantissaTestBit(Mantissa,(aIEEEFormat.Exponent+aIEEEFormat.Explicit)-1) then begin
+     MantissaShiftRight(Mantissa,1);
+     inc(Exponent);
+     if Exponent>=((ExpMax shl 1)-1) then begin
+      FloatType:=FL_INFINITY;
+      continue;
+     end;
+    end;
+    if aIEEEFormat.Explicit=0 then begin
+     Mantissa[OnePos]:=Mantissa[OnePos] and not OneMask;
+    end;
+    Mantissa[0]:=Mantissa[0] or (TPasDblStrUtilsUInt32(Exponent) shl ((LIMB_BITS-1)-aIEEEFormat.Exponent));
+   end;
+   FL_INFINITY,FL_QNAN,FL_SNAN:begin
+    FillChar(Mantissa,SizeOf(Mantissa),#0);
+    Mantissa[0]:=((TPasDblStrUtilsUInt32(1) shl aIEEEFormat.Exponent)-1) shl ((LIMB_BITS-1)-aIEEEFormat.Exponent);
+    if aIEEEFormat.Explicit<>0 then begin
+     Mantissa[OnePos]:=Mantissa[OnePos] or OneMask;
+    end;
+    case FloatType of
+     FL_QNAN:begin
+      MantissaSetBit(Mantissa,aIEEEFormat.Exponent+aIEEEFormat.Explicit+1);
+     end;
+     FL_SNAN:begin
+      MantissaSetBit(Mantissa,aIEEEFormat.Exponent+aIEEEFormat.Explicit+aIEEEFormat.Mantissa);
+     end;
+    end;
+   end;
+  end;
+  break;
+ until false;
+ if Negative then begin
+  Mantissa[0]:=Mantissa[0] or LIMB_TOP_BIT;
+ end;
+ b:=@aFloatValue;
+ for i:=aIEEEFormat.Bytes-1 downto 0 do begin
+  b^:=Mantissa[i shr LIMB_BYTES_SHIFT] shr ((LIMB_BYTES_MASK-(i and LIMB_BYTES_MASK)) shl 3);
+  inc(b);
+ end;
+ result:=true;
+end;
+
 {$if defined(CPU64) or defined(CPUx64) or defined(CPUx8664) or defined(CPUx86_64) or defined(CPUAArch64)}
 function Div5(const x:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt64; {$ifdef caninline}inline;{$endif}
 begin
@@ -1749,14 +2473,167 @@ begin
  result:=TPasDblStrUtilsDouble(Pointer(@Bits)^);
 end;
 
-function RyuStringToDouble(const aStringValue:TPasDblStrUtilsString;const aOK:PPasDblStrUtilsBoolean=nil;const aStrict:boolean=false):TPasDblStrUtilsDouble;
+function FallbackStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aRoundingMode:TPasDblStrUtilsRoundingMode=rmNearest;const aOK:PPasDblStrUtilsBoolean=nil;const aBase:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsDouble;
+const Bits=512; // [64,128,256,512]
+var OK:TPasDblStrUtilsBoolean;
+    TemporaryFloat:array[0..7] of TPasDblStrUtilsUInt64;
+    IEEEExponent,Count,FullExp,ExpOfs:TPasDblStrUtilsInt32;
+    IEEEMantissa:TPasDblStrUtilsUInt64;
+    ui128:TPasDblStrUtilsUInt128;
+    SignedMantissa,RoundNearestEven,HasResult:TPasDblStrUtilsBoolean;
+    RoundIncrement,RoundBits:TPasDblStrUtilsInt16;
+    IEEEFormat:PIEEEFormat;
+begin
+ case TPasDblStrUtilsInt32(Bits) of
+  64:begin
+   IEEEFormat:=@IEEEFormat64;
+  end;
+  128:begin
+   IEEEFormat:=@IEEEFormat128;
+  end;
+  256:begin
+   IEEEFormat:=@IEEEFormat256;
+  end;
+  512:begin
+   IEEEFormat:=@IEEEFormat512;
+  end;
+  else begin
+   result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
+   if assigned(aOK) then begin
+    aOK^:=false;
+   end;
+   exit;
+  end;
+ end;
+ FillChar(TemporaryFloat,SizeOf(TemporaryFloat),#0);
+ if Bits=64 then begin
+  OK:=StringToFloat(aStringValue,aStringLength,TemporaryFloat,IEEEFormat^,aRoundingMode,false,aBase);
+ end else begin
+  OK:=StringToFloat(aStringValue,aStringLength,TemporaryFloat,IEEEFormat^,rmNearest,false,aBase);
+ end;
+ if OK then begin
+  if Bits=64 then begin
+   result:=UInt64Bits2Double(TemporaryFloat[0]);
+  end else begin
+   case TPasDblStrUtilsInt32(Bits) of
+    128:begin
+     ui128:=(TPasDblStrUtilsUInt128(TemporaryFloat[1] and TPasDblStrUtilsUInt64($0000ffffffffffff)) shl 80) or
+            (TPasDblStrUtilsUInt128(TemporaryFloat[0] and TPasDblStrUtilsUInt64($ffffffffffffffff)) shl 16);
+     IEEEExponent:=(TemporaryFloat[1] shr 48) and $7fff;
+     SignedMantissa:=(TemporaryFloat[1] shr 63)<>0;
+     FullExp:=$7fff;
+     ExpOfs:=$3c01;
+    end;
+    256:begin
+     ui128:=(TPasDblStrUtilsUInt128(TemporaryFloat[3] and TPasDblStrUtilsUInt64($00000fffffffffff)) shl 84) or
+            (TPasDblStrUtilsUInt128(TemporaryFloat[2] and TPasDblStrUtilsUInt64($ffffffffffffffff)) shl 20) or
+            (TPasDblStrUtilsUInt128(TemporaryFloat[1] and TPasDblStrUtilsUInt64($fffff00000000000)) shr 44);
+     IEEEExponent:=(TemporaryFloat[3] shr 44) and $7ffff;
+     SignedMantissa:=(TemporaryFloat[3] shr 63)<>0;
+     FullExp:=$7ffff;
+     ExpOfs:=$3fc01;
+    end;
+    512:begin
+     ui128:=(TPasDblStrUtilsUInt128(TemporaryFloat[7] and TPasDblStrUtilsUInt64($000000ffffffffff)) shl 88) or
+            (TPasDblStrUtilsUInt128(TemporaryFloat[6] and TPasDblStrUtilsUInt64($ffffffffffffffff)) shl 24) or
+            (TPasDblStrUtilsUInt128(TemporaryFloat[5] and TPasDblStrUtilsUInt64($ffffff0000000000)) shr 40);
+     IEEEExponent:=(TemporaryFloat[7] shr 40) and $7fffff;
+     SignedMantissa:=(TemporaryFloat[7] shr 63)<>0;
+     FullExp:=$7fffff;
+     ExpOfs:=$3ffc01;
+    end;
+    else begin
+     exit;
+    end;
+   end;
+   if IEEEExponent=FullExp then begin
+    if ui128<>0 then begin
+     result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff0000000000000) or TPasDblStrUtilsUInt64(ui128.Hi) or (TPasDblStrUtilsUInt64(SignedMantissa) shl 63)); // -/+(Q|S)NaN
+    end else begin
+     result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff0000000000000) or (TPasDblStrUtilsUInt64(SignedMantissa) shl 63)); // -/+Inf
+    end;
+   end else begin
+    ui128:=ui128 shr 2;
+    IEEEMantissa:=ui128.Hi or (ord(ui128.Lo<>0) and 1);
+    if (IEEEExponent<>0) or (IEEEMantissa<>0) then begin
+     IEEEMantissa:=IEEEMantissa or TPasDblStrUtilsUInt64($4000000000000000);
+     dec(IEEEExponent,ExpOfs);
+    end;
+    case aRoundingMode of
+     rmTruncate:begin
+      RoundNearestEven:=false;
+      RoundIncrement:=0;
+     end;
+     rmUp:Begin
+      RoundNearestEven:=false;
+      if SignedMantissa then begin
+       RoundIncrement:=0;
+      end else begin
+       RoundIncrement:=$3ff;
+      end;
+     end;
+     rmDown:Begin
+      RoundNearestEven:=false;
+      if SignedMantissa then begin
+       RoundIncrement:=$3ff;
+      end else begin
+       RoundIncrement:=0;
+      end;
+     end;
+     else {rmNearest:}begin
+      RoundNearestEven:=true;
+      RoundIncrement:=$200;
+     end;
+    end;
+    RoundBits:=IEEEMantissa and $3ff;
+    HasResult:=false;
+    if $7fd<=TPasDblStrUtilsUInt16(IEEEExponent) then begin
+     if ($7fd<IEEEExponent) or ((IEEEExponent=$7fd) and (TPasDblStrUtilsInt64(IEEEMantissa+RoundIncrement)<0)) then begin
+      result:=UInt64Bits2Double(((TPasDblStrUtilsUInt64(ord(SignedMantissa) and 1) shl 63) or (TPasDblStrUtilsUInt64($7ff) shl 52) or (0 and ((TPasDblStrUtilsUInt64(1) shl 52)-1)))-(ord(RoundIncrement=0) and 1));
+      HasResult:=true;
+     end else if IEEEExponent<0 then begin
+      Count:=-IEEEExponent;
+      if Count<>0 then begin
+       if Count<64 then begin
+        IEEEMantissa:=(IEEEMantissa shr Count) or ord((IEEEMantissa shl ((-Count) and 63))<>0) and 1;
+       end else begin
+        IEEEMantissa:=ord(IEEEMantissa<>0) and 1;
+       end;
+      end;
+      IEEEExponent:=0;
+      RoundBits:=IEEEMantissa and $3ff;
+     end;
+    end;
+    if not HasResult then begin
+     IEEEMantissa:=(IEEEMantissa+RoundIncrement) shr 10;
+     IEEEMantissa:=IEEEMantissa and not TPasDblStrUtilsUInt64(ord(((RoundBits xor $200)=0) and RoundNearestEven) and 1);
+     if IEEEMantissa=0 then begin
+      IEEEExponent:=0;
+     end;
+     result:=UInt64Bits2Double((TPasDblStrUtilsUInt64(ord(SignedMantissa) and 1) shl 63)+(TPasDblStrUtilsUInt64(IEEEExponent) shl 52)+IEEEMantissa);
+    end;
+   end;
+  end;
+ end else begin
+  result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
+ end;
+ if assigned(aOK) then begin
+  aOK^:=OK;
+ end;
+end;
+
+function FallbackStringToDouble(const aStringValue:TPasDblStrUtilsString;const aRoundingMode:TPasDblStrUtilsRoundingMode=rmNearest;const aOK:PPasDblStrUtilsBoolean=nil;const aBase:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsDouble;
+begin
+ result:=FallbackStringToDouble(@aStringValue[1],length(aStringValue),aRoundingMode,aOK,aBase);
+end;
+
+function RyuStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aOK:PPasDblStrUtilsBoolean=nil;const aStrict:boolean=false):TPasDblStrUtilsDouble; overload;
 const DOUBLE_MANTISSA_BITS=52;
       DOUBLE_EXPONENT_BITS=11;
       DOUBLE_EXPONENT_BIAS=1023;
-var InputStringLength,
-    CountBase10MantissaDigits,ExtraCountBase10MantissaDigits,CountBase10ExponentDigits,
+var CountBase10MantissaDigits,ExtraCountBase10MantissaDigits,CountBase10ExponentDigits,
     DotPosition,ExponentPosition,
-    Base10MantissaBits,
+    Base10MantissaBits,Base2MantissaBits,
     Base10Exponent,Position,Base2Exponent,Shift,Temporary,Exponent:TPasDblStrUtilsInt32;
     Base10Mantissa,Base2Mantissa,IEEEMantissa:TPasDblStrUtilsUInt64;
     IEEEExponent,LastRemovedBit:TPasDblStrUtilsUInt32;
@@ -1766,30 +2643,31 @@ begin
  if assigned(aOK) then begin
   aOK^:=false;
  end;
- InputStringLength:=length(aStringValue);
- if InputStringLength=0 then begin
-  result:=0.0;
+ if aStringLength=0 then begin
+  result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
   exit;
  end;
  CountBase10MantissaDigits:=0;
  ExtraCountBase10MantissaDigits:=0;
  CountBase10ExponentDigits:=0;
- DotPosition:=InputStringLength+1;
- ExponentPosition:=InputStringLength+1;
+ DotPosition:=aStringLength;
+ ExponentPosition:=aStringLength;
  Base10Mantissa:=0;
  Base10Exponent:=0;
  SignedMantissa:=false;
  SignedExponent:=false;
  ExtraRoundUp:=false;
- Position:=1;
- while (Position<=InputStringLength) and (aStringValue[Position] in [#0..#32]) do begin
+ Position:=0;
+ while (Position<aStringLength) and (aStringValue[Position] in [#0..#32]) do begin
   inc(Position);
  end;
- while (Position<=InputStringLength) and (aStringValue[Position]='-') do begin
-  SignedMantissa:=not SignedMantissa;
+ while (Position<aStringLength) and (aStringValue[Position] in ['-','+']) do begin
+  if aStringValue[Position]='-' then begin
+   SignedMantissa:=not SignedMantissa;
+  end;
   inc(Position);
  end;
- if (Position+2)<=InputStringLength then begin
+ if (Position+2)<aStringLength then begin
   if (aStringValue[Position] in ['n','N']) and
      (aStringValue[Position+1] in ['a','A']) and
      (aStringValue[Position+2] in ['n','N']) then begin
@@ -1816,11 +2694,11 @@ begin
    exit;
   end;
  end;
- while Position<=InputStringLength do begin
+ while Position<aStringLength do begin
   c:=aStringValue[Position];
   case c of
    '.':begin
-    if DotPosition<>(InputStringLength+1) then begin
+    if DotPosition<>aStringLength then begin
      result:=0.0;
      exit;
     end;
@@ -1842,14 +2720,19 @@ begin
   end;
   inc(Position);
  end;
- if (Position<=InputStringLength) and (aStringValue[Position] in ['e','E']) then begin
+ while CountBase10MantissaDigits>18 do begin
+  Base10Mantissa:=RoundDiv10(Base10Mantissa);
+  dec(CountBase10MantissaDigits);
+  inc(ExtraCountBase10MantissaDigits);
+ end;
+ if (Position<aStringLength) and (aStringValue[Position] in ['e','E']) then begin
   ExponentPosition:=Position;
   inc(Position);
-  if (Position<=InputStringLength) and (aStringValue[Position] in ['-','+']) then begin
+  if (Position<aStringLength) and (aStringValue[Position] in ['-','+']) then begin
    SignedExponent:=aStringValue[Position]='-';
    inc(Position);
   end;
-  while Position<=InputStringLength do begin
+  while Position<aStringLength do begin
    c:=aStringValue[Position];
    case c of
     '0'..'9':begin
@@ -1878,15 +2761,15 @@ begin
      end;
     end;
     else begin
-     result:=0.0;
+     result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
      exit;
     end;
    end;
    inc(Position);
   end;
  end;
- if Position<=InputStringLength then begin
-  result:=0.0;
+ if Position<aStringLength then begin
+  result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
   exit;
  end;
  if SignedExponent then begin
@@ -1979,6 +2862,11 @@ begin
  if assigned(aOK) then begin
   aOK^:=(not aStrict) or (ExtraCountBase10MantissaDigits=0);
  end;
+end;
+
+function RyuStringToDouble(const aStringValue:TPasDblStrUtilsString;const aOK:PPasDblStrUtilsBoolean=nil;const aStrict:boolean=false):TPasDblStrUtilsDouble; overload;
+begin
+ result:=RyuStringToDouble(@aStringValue[1],length(aStringValue),aOK,aStrict);
 end;
 
 function RyuDoubleToString(const aValue:TPasDblStrUtilsDouble;const aExponential:boolean=true):TPasDblStrUtilsString;
@@ -2678,1127 +3566,42 @@ const DoubleToStringPowerOfTenTable:array[0..86,0..2] of TPasDblStrUtilsInt64=((
                                                                                    837342623,
                                                                                    830760078);
 
-function ConvertStringToDouble(const StringValue:TPasDblStrUtilsString;const RoundingMode:TPasDblStrUtilsRoundingMode=rmNearest;const OK:PPasDblStrUtilsBoolean=nil;const Base:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsDouble;
-type PDoubleCasted=^TDoubleCasted;
-     TDoubleCasted=packed record
-      case TPasDblStrUtilsUInt8 of
-       0:(Value:TPasDblStrUtilsDouble);
-       1:({$ifdef BIG_ENDIAN}Hi,Lo{$else}Lo,Hi{$endif}:TPasDblStrUtilsUInt32);
-       2:(Value64:TPasDblStrUtilsInt64);
-     end;
-const MantissaWords=12; //6; // 12
-      MantissaDigits=52; //28; // 52
-      WordTopBit=$8000;
-      WordBits=16;
-      WordBitShift=4;
-      WordBitMask=WordBits-1;
-      WordMask=$ffff;
-      IEEEFormatBytes=8;
-      IEEEFormatBits=IEEEFormatBytes shl 3;
-      IEEEFormatExplicit=0;
-      IEEEFormatExponent=11;
-      IEEEFormatOneMask=WordTopBit shr ((IEEEFormatExponent+IEEEFormatExplicit) and WordBitMask);
-      IEEEFormatOnePos=(IEEEFormatExponent+IEEEFormatExplicit) shr WordBitShift;
-      IEEEFormatExpMax=1 shl (IEEEFormatExponent-1);
-      Bit53=TPasDblStrUtilsInt64(TPasDblStrUtilsInt64(1) shl 53);
-      InvBit53Mask=TPasDblStrUtilsInt64($ffe0000000000000);
-      MaximumMultiplier=TPasDblStrUtilsUInt32(TPasDblStrUtilsUInt32($ffffffff) div 36);
-      DtoAFPUExceptionMask:TFPUExceptionMask=[exInvalidOp,exDenormalized,exZeroDivide,exOverflow,exUnderflow,exPrecision];
-      DtoAFPUPrecisionMode:TFPUPrecisionMode=pmDOUBLE;
-      MaxFastPathDigits=16;
-      TenPowers:array[0..18] of TPasDblStrUtilsInt64=
-       (
-        1,
-        10,
-        100,
-        1000,
-        10000,
-        100000,
-        1000000,
-        10000000,
-        100000000,
-        1000000000,
-        10000000000,
-        100000000000,
-        1000000000000,
-        10000000000000,
-        100000000000000,
-        1000000000000000,
-        10000000000000000,
-        100000000000000000,
-        1000000000000000000
-       );
-type PWords=^TWords;
-     TWords=array[0..MantissaWords] of TPasDblStrUtilsUInt16;
-     PTemp=^TTemp;
-     TTemp=array[0..MantissaWords*2] of TPasDblStrUtilsUInt32;
-     PDigits=^TDigits;
-     TDigits=array[0..MantissaDigits] of TPasDblStrUtilsUInt8;
-var MantissaPosition,Exponent,TenPower,TwoPower,ExtraTwos,Shift,i,DigitPos,StoredDigitPos,DigitPosBackwards,Digit,Overflow,OverflowBits,DroppedBits,DroppedBitsMask,MiddleValue,ExponentPower,ExponentValue:TPasDblStrUtilsInt32;
-    Bit,Carry:TPasDblStrUtilsUInt16;
-    Negative,ExponentNegative,HasDigits,Started,ZeroTail,Done,TemporaryOK:TPasDblStrUtilsBoolean;
-    ResultCasted:PDoubleCasted;
-    Temp:PTemp;
-    Digits:PDigits;
-    MantissaMultiplicator,Mantissa:PWords;
-    Value:TPasDblStrUtilsInt64;
-    c:TPasDblStrUtilsChar;
-    Part,Multiplier,NextMultiplier:TPasDblStrUtilsUInt32;
-    OldFPUExceptionMask:TFPUExceptionMask;
-    OldFPURoundingMode,NewFPURoundingMode:TFPURoundingMode;
-    OldFPUPrecisionMode:TFPUPrecisionMode;
- function MantissaMultiply(vTo,vFrom:PWords):TPasDblStrUtilsInt32;
- var i,j,k:TPasDblStrUtilsInt32;
-     v:TPasDblStrUtilsUInt32;
-     t:PTemp;
- begin
-  t:=Temp;
-  FillChar(t^,sizeof(TTemp),#0);
-  for i:=0 to MantissaWords-1 do begin
-   for j:=0 to MantissaWords-1 do begin
-    v:=TPasDblStrUtilsUInt32(vTo^[i]+0)*TPasDblStrUtilsUInt32(vFrom^[j]+0);
-    k:=i+j;
-    inc(t^[k],v shr WordBits);
-    inc(t^[k+1],v and WordMask);
-   end;
-  end;
-  for i:=high(TTemp) downto 1 do begin
-   inc(t^[i-1],t^[i] shr WordBits);
-   t^[i]:=t^[i] and WordMask;
-  end;
-  if (t^[0] and WordTopBit)<>0 then begin
-   for i:=0 to MantissaWords-1 do begin
-    vTo^[i]:=t^[i] and WordMask;
-   end;
-   result:=0;
-  end else begin
-   for i:=0 to MantissaWords-1 do begin
-    vTo^[i]:=(t^[i] shl 1)+TPasDblStrUtilsUInt16(ord((t^[i+1] and WordTopBit)<>0));
-   end;
-   result:=-1;
-  end;
- end;
- procedure MantissaShiftRight(var Mantissa:TWords;Shift:TPasDblStrUtilsInt32);
- var Bits,Words,InvBits,Position:TPasDblStrUtilsInt32;
-     Carry,Current:TPasDblStrUtilsUInt32;
- begin
-  Bits:=Shift and WordBitMask;
-  Words:=Shift shr WordBitShift;
-  InvBits:=WordBits-Bits;
-  Position:=high(TWords);
-  if Bits=0 then begin
-   if Words<>0 then begin
-    while Position>=Words do begin
-     Mantissa[Position]:=Mantissa[Position-Words];
-     dec(Position);
-    end;
-   end;
-  end else begin
-   if (high(TWords)-Words)>=0 then begin
-    Carry:=Mantissa[high(TWords)-Words] shr Bits;
-   end else begin
-    Carry:=0;
-   end;
-   while Position>Words do begin
-    Current:=Mantissa[Position-(Words+1)];
-    Mantissa[Position]:=(Current shl InvBits) or Carry;
-    Carry:=Current shr Bits;
-    dec(Position);
-   end;
-   Mantissa[Position]:=Carry;
-   dec(Position);
-  end;
-  while Position>=0 do begin
-   Mantissa[Position]:=0;
-   dec(Position);
-  end;
- end;
- procedure MantissaSetBit(var Mantissa:TWords;i:TPasDblStrUtilsInt32); {$ifdef CanInline}inline;{$endif}
- begin
-  Mantissa[i shr WordBitShift]:=Mantissa[i shr WordBitShift] or (WordTopBit shr (i and WordBitMask));
- end;
- function MantissaTestBit(var Mantissa:TWords;i:TPasDblStrUtilsInt32):TPasDblStrUtilsBoolean; {$ifdef CanInline}inline;{$endif}
- begin
-  result:=(Mantissa[i shr WordBitShift] shr ((not i) and WordBitMask))<>0;
- end;
- function MantissaIsZero(var Mantissa:TWords):TPasDblStrUtilsBoolean;
- var i:TPasDblStrUtilsInt32;
- begin
-  result:=true;
-  for i:=low(TWords) to High(TWords) do begin
-   if Mantissa[i]<>0 then begin
-    result:=false;
-    break;
-   end;
-  end;
- end;
- function MantissaRound(Negative:TPasDblStrUtilsBoolean;var Mantissa:TWords;BitPos:TPasDblStrUtilsInt32):TPasDblStrUtilsBoolean;
- var i,p:TPasDblStrUtilsInt32;
-     Bit:TPasDblStrUtilsUInt32;
-  function RoundAbsDown:TPasDblStrUtilsBoolean;
-  var j:TPasDblStrUtilsInt32;
-  begin
-   Mantissa[i]:=Mantissa[i] and not (Bit-1);
-   for j:=i+1 to high(TWords) do begin
-    Mantissa[j]:=0;
-   end;
-   result:=false;
-  end;
-  function RoundAbsUp:TPasDblStrUtilsBoolean;
-  var j:TPasDblStrUtilsInt32;
-  begin
-   Mantissa[i]:=(Mantissa[i] and not (Bit-1))+Bit;
-   for j:=i+1 to high(TWords) do begin
-    Mantissa[j]:=0;
-   end;
-   while (i>0) and (Mantissa[i]=0) do begin
-    dec(i);
-    inc(Mantissa[i]);
-   end;
-   result:=Mantissa[0]=0;
-  end;
-  function RoundTowardsInfinity:TPasDblStrUtilsBoolean;
-  var j:TPasDblStrUtilsInt32;
-      m:TPasDblStrUtilsUInt32;
-  begin
-   m:=Mantissa[i] and ((Bit shl 1)-1);
-   for j:=i+1 to high(TWords) do begin
-    m:=m or Mantissa[j];
-   end;
-   if m<>0 then begin
-    result:=RoundAbsUp;
-   end else begin
-    result:=RoundAbsDown;
-   end;
-  end;
-  function RoundNear:TPasDblStrUtilsBoolean;
-  var j:TPasDblStrUtilsInt32;
-      m:TPasDblStrUtilsUInt32;
-  begin
-   if (Mantissa[i] and Bit)<>0 then begin
-    Mantissa[i]:=Mantissa[i] and not Bit;
-    m:=Mantissa[i] and ((Bit shl 1)-1);
-    for j:=i+1 to high(TWords) do begin
-     m:=m or Mantissa[j];
-    end;
-    Mantissa[i]:=Mantissa[i] or Bit;
-    if m<>0 then begin
-     result:=RoundAbsUp;
-    end else begin
-     if MantissaTestBit(Mantissa,BitPos-1) then begin
-      result:=RoundAbsUp;
-     end else begin
-      result:=RoundAbsDown;
-     end;
-    end;
-   end else begin
-    result:=RoundAbsDown;
-   end;
-  end;
- begin
-  i:=BitPos shr WordBitShift;
-  p:=BitPos and WordBitMask;
-  Bit:=WordTopBit shr p;
-  case RoundingMode of
-   rmNearest:begin
-    result:=RoundNear;
-   end;
-   rmTruncate:begin
-    result:=RoundAbsDown;
-   end;
-   rmUp:begin
-    if Negative then begin
-     result:=RoundAbsDown;
-    end else begin
-     result:=RoundTowardsInfinity;
-    end;
-   end;
-   rmDown:begin
-    if Negative then begin
-     result:=RoundTowardsInfinity;
-    end else begin
-     result:=RoundAbsDown;
-    end;
-   end;
-   else begin
-    result:=false;
-   end;
-  end;
- end;
- function CountLeadingZeros32(a:TPasDblStrUtilsUInt32):TPasDblStrUtilsInt32;
- const CountLeadingZerosHigh:array[TPasDblStrUtilsUInt8] of TPasDblStrUtilsUInt8=(8,7,6,6,5,5,5,5,4,4,4,4,4,4,4,4,
-                                                  3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,
-                                                  2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
-                                                  2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
-                                                  1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-                                                  1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-                                                  1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-                                                  1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-                                                  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                                                  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                                                  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                                                  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                                                  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                                                  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                                                  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-                                                  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0);
- begin
-  result:=0;
-  if a<$10000 then begin
-   inc(result,16);
-   a:=a shl 16;
-  end;
-  if a<$1000000 then begin
-   inc(result,8);
-   a:=a shl 8;
-  end;
-  inc(result,CountLeadingZerosHigh[a shr 24]);
- end;
- function CountLeadingZeros64(a:TPasDblStrUtilsInt64):TPasDblStrUtilsInt32;
- begin
- if a<TPasDblStrUtilsInt64($100000000) then begin
-   result:=32;
-  end else begin
-   result:=0;
-   a:=a shr 32;
-  end;
-  inc(result,CountLeadingZeros32(a));
- end;
+function ConvertStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aRoundingMode:TPasDblStrUtilsRoundingMode=rmNearest;const aOK:PPasDblStrUtilsBoolean=nil;const aBase:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsDouble;
+var TemporaryOK:TPasDblStrUtilsBoolean;
 begin
- if assigned(OK) then begin
-  OK^:=false;
+ if assigned(aOK) then begin
+  aOK^:=false;
  end;
- ResultCasted:=pointer(@result);
- ResultCasted^.Hi:=$7ff80000;
- ResultCasted^.Lo:=$00000000;
- i:=1;
- while (i<=length(StringValue)) and (StringValue[i] in [#0..#32]) do begin
-  inc(i);
+ if (aRoundingMode=rmNearest) and ((aBase<0) or (aBase=10)) then begin
+  // Fast path
+  TemporaryOK:=false;
+  result:=RyuStringToDouble(aStringValue,aStringLength,@TemporaryOK,true);
+  if TemporaryOK then begin
+   if assigned(aOK) then begin
+    aOK^:=true;
+   end;
+   exit;
+  end;
  end;
- if (i<=length(StringValue)) and ((StringValue[i]='-') or (StringValue[i]='+')) then begin
-  Negative:=StringValue[i]='-';
-  inc(i);
- end else begin
-  Negative:=false;
- end;
- HasDigits:=false;
- if ((i+7)<=length(StringValue)) and ((StringValue[i]='I') and (StringValue[i+1]='n') and (StringValue[i+2]='f') and (StringValue[i+3]='i') and (StringValue[i+4]='n') and (StringValue[i+5]='i') and (StringValue[i+6]='t') and (StringValue[i+7]='y')) then begin
-  if Negative then begin
-   ResultCasted^.Hi:=$fff00000;
-   ResultCasted^.Lo:=$00000000;
-  end else begin
-   ResultCasted^.Hi:=$7ff00000;
-   ResultCasted^.Lo:=$00000000;
-  end;
-  if assigned(OK) then begin
-   OK^:=true;
-  end;
- end else if ((i+2)<=length(StringValue)) and ((StringValue[i]='N') and (StringValue[i+1]='a') and (StringValue[i+2]='N')) then begin
-  ResultCasted^.Hi:=$7ff80000;
-  ResultCasted^.Lo:=$00000000;
-  if assigned(OK) then begin
-   OK^:=true;
-  end;
- end else if (Base in [2,4,8,16,32]) or ((not (Base in [2..36])) and ((((i+1)<=length(StringValue)) and ((StringValue[i]='0') and (StringValue[i+1] in ['b','o','x']))))) then begin
-  ResultCasted^.Hi:=$00000000;
-  ResultCasted^.Lo:=$00000000;
-  case Base of
-   2:begin
-    Shift:=1;
+ begin
+  // Damn slow path
+  TemporaryOK:=false;
+  result:=FallbackStringToDouble(aStringValue,aStringLength,aRoundingMode,@TemporaryOK,aBase);
+  if TemporaryOK then begin
+   if assigned(aOK) then begin
+    aOK^:=true;
    end;
-   4:begin
-    Shift:=2;
-   end;
-   8:begin
-    Shift:=3;
-   end;
-   16:begin
-    Shift:=4;
-   end;
-   32:begin
-    Shift:=5;
-   end;
-   else begin
-    inc(i);
-    case StringValue[i] of
-     'b':begin
-      Shift:=1;
-     end;
-     'o':begin
-      Shift:=3;
-     end;
-     else {'x':}begin
-      Shift:=4;
-     end;
-    end;
-    inc(i);
-   end;
-  end;
-  TwoPower:=1 shl Shift;
-  Value:=0;
-  Exponent:=0;
-  while (i<=length(StringValue)) and (StringValue[i]='0') do begin
-   HasDigits:=true;
-   inc(i);
-  end;
-  if i<=length(StringValue) then begin
-   //q:=0;
-   ExponentPower:=1;
-   Digit:=0;
-   while i<=length(StringValue) do begin
-    c:=StringValue[i];
-    if c='.' then begin
-     if ExponentPower>0 then begin
-      ExponentPower:=0;
-      inc(i);
-      if i>length(StringValue) then begin
-       Done:=true;
-       if Done then begin
-       end;
-       break;
-      end;
-      continue;
-     end else begin
-      break;
-     end;
-    end else if (c in ['0'..'9']) and (ord(c)<=(ord('0')+TwoPower)) then begin
-     Digit:=ord(c)-ord('0');
-    end else if (TwoPower>10) and ((c in ['a'..'z']) and (ord(c)<=((ord('a')+TwoPower)-10))) then begin
-     Digit:=(ord(c)-ord('a'))+10;
-    end else if (TwoPower>10) and ((c in ['A'..'Z']) and (ord(c)<=((ord('A')+TwoPower)-10))) then begin
-     Digit:=(ord(c)-ord('A'))+10;
-    end else begin
-     break;
-    end;
-    inc(i);
-    HasDigits:=true;
-    if ExponentPower<=0 then begin
-     dec(ExponentPower);
-    end;
-    Value:=(Value shl Shift) or Digit;
-    Overflow:=TPasDblStrUtilsInt32(TPasDblStrUtilsInt64(Value shr 53));
-    if Overflow<>0 then begin
-     OverflowBits:=1;
-     while Overflow>1 do begin
-      inc(OverflowBits);
-      Overflow:=Overflow shr 1;
-     end;
-     DroppedBitsMask:=(1 shl OverflowBits)-1;
-     DroppedBits:=Value and DroppedBitsMask;
-     Value:=Value shr OverflowBits;
-     Exponent:=OverflowBits;
-     ZeroTail:=true;
-     while i<=length(StringValue) do begin
-      c:=StringValue[i];
-      if (c in ['0'..'9']) and (ord(c)<=(ord('0')+TwoPower)) then begin
-       Digit:=ord(c)-ord('0');
-      end else if (TwoPower>10) and ((c in ['a'..'z']) and (ord(c)<=((ord('a')+TwoPower)-10))) then begin
-       Digit:=(ord(c)-ord('a'))+10;
-      end else if (TwoPower>10) and ((c in ['A'..'Z']) and (ord(c)<=((ord('A')+TwoPower)-10))) then begin
-       Digit:=(ord(c)-ord('A'))+10;
-      end else begin
-       break;
-      end;
-      inc(i);
-      if Digit<>0 then begin
-       ZeroTail:=false;
-      end;
-      inc(Exponent,Shift);
-     end;
-     MiddleValue:=1 shl (OverflowBits-1);
-     if DroppedBits>MiddleValue then begin
-      inc(Value);
-     end else if DroppedBits=MiddleValue then begin
-      if ((Value and 1)<>0) or not ZeroTail then begin
-       inc(Value);
-      end;
-     end;
-     while (Value and Bit53)<>0 do begin
-      Value:=Value shr 1;
-      inc(Exponent);
-     end;
-     break;
-    end;
-   end;
-   if ExponentPower>0 then begin
-    ExponentPower:=0;
-   end;
-   ExponentValue:=0;
-   ExponentNegative:=false;
-   if (i<=length(StringValue)) and (StringValue[i] in ['e','E','p','P']) then begin
-    inc(i);
-    if (i<=length(StringValue)) and (StringValue[i] in ['+','-']) then begin
-     ExponentNegative:=StringValue[i]='-';
-     inc(i);
-    end;
-    HasDigits:=false;
-    while (i<=length(StringValue)) and (StringValue[i] in ['0'..'9']) do begin
-     ExponentValue:=(ExponentValue*10)+TPasDblStrUtilsInt32(ord(StringValue[i])-ord('0'));
-     HasDigits:=true;
-     inc(i);
-    end;
-   end;
-   if ExponentNegative then begin
-    dec(ExponentPower,ExponentValue);
-   end else begin
-    inc(ExponentPower,ExponentValue);
-   end;
-   inc(Exponent,Shift*ExponentPower);
-   Shift:=CountLeadingZeros64(Value);
-   ExponentValue:=$432-((Shift-IEEEFormatExponent)-Exponent);
-   if (((ExponentValue>$34) and (ExponentValue<$7fe)) and (Exponent<IEEEFormatExponent)) and (Value<Bit53) then begin
-    dec(Shift,IEEEFormatExponent);
-    if Shift>=0 then begin
-     Value:=Value shl Shift;
-    end else begin
-     Value:=Value shr (-Shift);
-    end;
-    ResultCasted^.Value64:=((TPasDblStrUtilsInt64(ExponentValue) shl 52)+Value) and TPasDblStrUtilsInt64($7fffffffffffffff);
-   end else begin
-    New(Mantissa);
-    try
-     FillChar(Mantissa^,sizeof(TWords),#0);
-     Value:=Value shl Shift;
-     inc(Exponent,64-Shift);
-     Mantissa^[0]:=(Value shr 48) and $ffff;
-     Mantissa^[1]:=(Value shr 32) and $ffff;
-     Mantissa^[2]:=(Value shr 16) and $ffff;
-     Mantissa^[3]:=(Value shr 0) and $ffff;
-     if (Mantissa^[0] and WordTopBit)<>0 then begin
-      dec(Exponent);
-      if (Exponent>=(2-IEEEFormatExpMax)) and (Exponent<=IEEEFormatExpMax) then begin
-       inc(Exponent,IEEEFormatExpMax-1);
-       MantissaShiftRight(Mantissa^,IEEEFormatExponent+IEEEFormatExplicit);
-       MantissaRound(Negative,Mantissa^,IEEEFormatBits);
-       if MantissaTestBit(Mantissa^,IEEEFormatExponent+IEEEFormatExplicit-1) then begin
-        MantissaShiftRight(Mantissa^,1);
-        inc(Exponent);
-       end;
-       if Exponent>=(IEEEFormatExpMax shl 1)-1 then begin
-        ResultCasted^.Hi:=$7ff00000;
-        ResultCasted^.Lo:=$00000000;
-       end else begin
-        ResultCasted^.Hi:=(((Exponent shl 4) or (Mantissa^[0] and $f)) shl 16) or Mantissa^[1];
-        ResultCasted^.Lo:=(Mantissa^[2] shl 16) or Mantissa^[3];
-       end;
-      end else if Exponent>0 then begin
-       ResultCasted^.Hi:=$7ff00000;
-       ResultCasted^.Lo:=$00000000;
-      end else begin
-       Shift:=IEEEFormatExplicit-(Exponent+(IEEEFormatExpMax-(2+IEEEFormatExponent)));
-       MantissaShiftRight(Mantissa^,Shift);
-       MantissaRound(Negative,Mantissa^,IEEEFormatBits);
-       if (Mantissa^[IEEEFormatOnePos] and IEEEFormatOneMask)<>0 then begin
-        Exponent:=1;
-        if IEEEFormatExplicit=0 then begin
-         Mantissa^[IEEEFormatOnePos]:=Mantissa^[IEEEFormatOnePos] and not IEEEFormatOneMask;
-        end;
-        Mantissa^[0]:=Mantissa^[0] or (Exponent shl (WordBitMask-IEEEFormatExponent));
-        ResultCasted^.Hi:=(((Exponent shl 4) or (Mantissa^[0] and $f)) shl 16) or Mantissa^[1];
-        ResultCasted^.Lo:=(Mantissa^[2] shl 16) or Mantissa^[3];
-       end else begin
-        if MantissaIsZero(Mantissa^) then begin
-         ResultCasted^.Hi:=$00000000;
-         ResultCasted^.Lo:=$00000000;
-        end else begin
-         ResultCasted^.Hi:=(Mantissa^[0] shl 16) or Mantissa^[1];
-         ResultCasted^.Lo:=(Mantissa^[2] shl 16) or Mantissa^[3];
-        end;
-       end;
-      end;
-     end else begin
-      ResultCasted^.Hi:=$00000000;
-      ResultCasted^.Lo:=$00000000;
-     end;
-    finally
-     Dispose(Mantissa);
-    end;
-   end;
-  end else begin
-   ResultCasted^.Hi:=$00000000;
-   ResultCasted^.Lo:=$00000000;
-  end;
-  if Negative then begin
-   ResultCasted^.Hi:=ResultCasted^.Hi or $80000000;
-  end;
-  if HasDigits then begin
-   if assigned(OK) then begin
-    OK^:=true;
-   end;
-  end;
- end else if Base in [2..9,11..36] then begin
-  ResultCasted^.Hi:=$00000000;
-  ResultCasted^.Lo:=$00000000;
-  while (i<=length(StringValue)) and (StringValue[i]='0') do begin
-   HasDigits:=true;
-   inc(i);
-  end;
-  if i<=length(StringValue) then begin
-   case RoundingMode of
-    rmNearest:begin
-     NewFPURoundingMode:=rmNearest;
-    end;
-    rmTruncate:begin
-     NewFPURoundingMode:=rmTruncate;
-    end;
-    rmUp:begin
-     NewFPURoundingMode:=rmUp;
-    end;
-    rmDown:begin
-     NewFPURoundingMode:=rmDown;
-    end;
-    else begin
-     NewFPURoundingMode:=rmNearest;
-    end;
-   end;
-   OldFPUExceptionMask:=GetExceptionMask;
-   OldFPUPrecisionMode:=GetPrecisionMode;
-   OldFPURoundingMode:=GetRoundMode;
-   try
-    if OldFPUExceptionMask<>DtoAFPUExceptionMask then begin
-     SetExceptionMask(DtoAFPUExceptionMask);
-    end;
-    if OldFPUPrecisionMode<>DtoAFPUPrecisionMode then begin
-     SetPrecisionMode(DtoAFPUPrecisionMode);
-    end;
-    if OldFPURoundingMode<>NewFPURoundingMode then begin
-     SetRoundMode(NewFPURoundingMode);
-    end;
-    Part:=0;
-    Multiplier:=1;
-    Digit:=0;
-    Done:=false;
-    ExponentPower:=1;
-    while not Done do begin
-     while true do begin
-      c:=StringValue[i];
-      if c='.' then begin
-       if ExponentPower>0 then begin
-        ExponentPower:=0;
-        inc(i);
-        if i>length(StringValue) then begin
-         Done:=true;
-         break;
-        end;
-        continue;
-       end else begin
-        Done:=true;
-        break;
-       end;
-      end else if ((c>='0') and (c<='9')) and (ord(c)<=(ord('0')+Base)) then begin
-       Digit:=ord(c)-ord('0');
-      end else if (Base>10) and (((c>='a') and (c<='z')) and (ord(c)<=((ord('a')+Base)-10))) then begin
-       Digit:=(ord(c)-ord('a'))+10;
-      end else if (Base>10) and (((c>='A') and (c<='Z')) and (ord(c)<=((ord('A')+Base)-10))) then begin
-       Digit:=(ord(c)-ord('A'))+10;
-      end else begin
-       Done:=true;
-       break;
-      end;
-      HasDigits:=true;
-      NextMultiplier:=Multiplier*TPasDblStrUtilsUInt32(Base);
-      if NextMultiplier>MaximumMultiplier then begin
-       break;
-      end;
-      if ExponentPower<=0 then begin
-       dec(ExponentPower);
-      end;
-      Part:=(Part*TPasDblStrUtilsUInt32(Base))+TPasDblStrUtilsUInt32(Digit);
-      Multiplier:=NextMultiplier;
-      Assert(Multiplier>Part);
-      inc(i);
-      if i>length(StringValue) then begin
-       Done:=true;
-       break;
-      end;
-     end;
-     ResultCasted^.Value:=(ResultCasted^.Value*Multiplier)+Part;
-    end;
-    if ExponentPower>0 then begin
-     ExponentPower:=0;
-    end;
-    ExponentValue:=0;
-    ExponentNegative:=false;
-    if (i<=length(StringValue)) and (StringValue[i] in ['e','E','p','P']) then begin
-     inc(i);
-     if (i<=length(StringValue)) and (StringValue[i] in ['+','-']) then begin
-      ExponentNegative:=StringValue[i]='-';
-      inc(i);
-     end;
-     HasDigits:=false;
-     while (i<=length(StringValue)) and (StringValue[i] in ['0'..'9']) do begin
-      ExponentValue:=(ExponentValue*10)+TPasDblStrUtilsInt32(ord(StringValue[i])-ord('0'));
-      HasDigits:=true;
-      inc(i);
-     end;
-    end;
-    if ExponentNegative then begin
-     dec(ExponentPower,ExponentValue);
-    end else begin
-     inc(ExponentPower,ExponentValue);
-    end;
-    if ExponentPower<>0 then begin
-     ResultCasted^.Value:=ResultCasted^.Value*power(Base,ExponentPower);
-    end;
-   finally
-    if OldFPUExceptionMask<>DtoAFPUExceptionMask then begin
-     SetExceptionMask(OldFPUExceptionMask);
-    end;
-    if OldFPUPrecisionMode<>DtoAFPUPrecisionMode then begin
-     SetPrecisionMode(OldFPUPrecisionMode);
-    end;
-    if OldFPURoundingMode<>NewFPURoundingMode then begin
-     SetRoundMode(OldFPURoundingMode);
-    end;
-   end;
-  end else begin
-   ResultCasted^.Hi:=$00000000;
-   ResultCasted^.Lo:=$00000000;
-  end;
-  if Negative then begin
-   ResultCasted^.Hi:=ResultCasted^.Hi or $80000000;
-  end;
-  if HasDigits then begin
-   if assigned(OK) then begin
-    OK^:=true;
-   end;
-  end;
- end else begin
-  if RoundingMode=rmNearest then begin
-   TemporaryOK:=false;
-   result:=RyuStringToDouble(StringValue,@TemporaryOK,true);
-   if TemporaryOK then begin
-    if assigned(OK) then begin
-     OK^:=true;
-    end;
-    exit;
-   end;
-  end;
-  HasDigits:=false;
-  Value:=0;
-  StoredDigitPos:=i;
-  DigitPos:=0;
-  TenPower:=1;
-  while (i<=length(StringValue)) and (StringValue[i]='0') do begin
-   HasDigits:=true;
-   inc(i);
-  end;
-  while i<=length(StringValue) do begin
-   c:=StringValue[i];
-   case c of
-    '0'..'9':begin
-     HasDigits:=true;
-     Value:=(Value*10)+(ord(c)-ord('0'));
-     inc(DigitPos);
-     if (Value and InvBit53Mask)<>0 then begin
-      HasDigits:=false;
-      break;
-     end;
-     if TenPower<=0 then begin
-      dec(TenPower);
-      if TenPower>high(TenPowers) then begin
-       HasDigits:=false;
-       break;
-      end;
-     end;
-    end;
-    '.':begin
-     if TenPower<=0 then begin
-      HasDigits:=false;
-      break;
-     end else begin
-      TenPower:=0;
-     end;
-    end;
-    'e','E':begin
-     break;
-    end;
-    else begin
-     HasDigits:=false;
-     break;
-    end;
-   end;
-   inc(i);
-  end;
-  if HasDigits then begin
-   if TenPower>0 then begin
-    TenPower:=0;
-   end;
-   ExponentValue:=0;
-   ExponentNegative:=false;
-   if (i<=length(StringValue)) and (StringValue[i] in ['e','E']) then begin
-    inc(i);
-    if (i<=length(StringValue)) and (StringValue[i] in ['+','-']) then begin
-     ExponentNegative:=StringValue[i]='-';
-     inc(i);
-    end;
-    HasDigits:=false;
-    while (i<=length(StringValue)) and (StringValue[i] in ['0'..'9']) do begin
-     ExponentValue:=(ExponentValue*10)+TPasDblStrUtilsInt32(ord(StringValue[i])-ord('0'));
-     HasDigits:=true;
-     inc(i);
-    end;
-   end;
-   if Value=0 then begin
-    TenPower:=0;
-   end else begin
-    if ExponentNegative then begin
-     dec(TenPower,ExponentValue);
-    end else begin
-     inc(TenPower,ExponentValue);
-    end;
-    if TenPower<>0 then begin
-     if TenPower>0 then begin
-      if ((DigitPos+TenPower)>MaxFastPathDigits) or (TenPower>high(TenPowers)) then begin
-       HasDigits:=false;
-      end else begin
-       Value:=Value*TenPowers[TenPower];
-       TenPower:=0;
-       if (Value and InvBit53Mask)<>0 then begin
-        HasDigits:=false;
-       end;
-      end;
-     end else begin
-      if (-TenPower)>high(TenPowers) then begin
-       HasDigits:=false;
-      end else begin
-       i:=-TenPower;
-       while (i>0) and (TenPower<0) do begin
-        if (Value mod TenPowers[i])=0 then begin
-         Value:=Value div TenPowers[i];
-         inc(TenPower,i);
-        end else begin
-         if (i and 1)=0 then begin
-          i:=i shr 1;
-         end else begin
-          dec(i);
-         end;
-        end;
-       end;
-      end;
-     end;
-    end;
-   end;
-  end;
-  if HasDigits then begin
-   if Value=0 then begin
-    ResultCasted^.Hi:=$00000000;
-    ResultCasted^.Lo:=$00000000;
-   end else begin
-    Shift:=CountLeadingZeros64(Value)-11;
-    if Shift>=0 then begin
-     Value:=Value shl Shift;
-    end else begin
-     Value:=Value shr (-Shift);
-    end;
-    ResultCasted^.Value64:=((TPasDblStrUtilsInt64($432-Shift) shl 52)+Value) and TPasDblStrUtilsInt64($7fffffffffffffff);
-   end;
-   if TenPower<>0 then begin
-    case RoundingMode of
-     rmNearest:begin
-      NewFPURoundingMode:=rmNearest;
-     end;
-     rmTruncate:begin
-      NewFPURoundingMode:=rmTruncate;
-     end;
-     rmUp:begin
-      NewFPURoundingMode:=rmUp;
-     end;
-     rmDown:begin
-      NewFPURoundingMode:=rmDown;
-     end;
-     else begin
-      NewFPURoundingMode:=rmNearest;
-     end;
-    end;
-    OldFPUExceptionMask:=GetExceptionMask;
-    OldFPUPrecisionMode:=GetPrecisionMode;
-    OldFPURoundingMode:=GetRoundMode;
-    try
-     if OldFPUExceptionMask<>DtoAFPUExceptionMask then begin
-      SetExceptionMask(DtoAFPUExceptionMask);
-     end;
-     if OldFPUPrecisionMode<>DtoAFPUPrecisionMode then begin
-      SetPrecisionMode(DtoAFPUPrecisionMode);
-     end;
-     if OldFPURoundingMode<>NewFPURoundingMode then begin
-      SetRoundMode(NewFPURoundingMode);
-     end;
-     if TenPower>0 then begin
-      while TenPower>high(TenPowers) do begin
-       ResultCasted^.Value:=ResultCasted^.Value*TenPowers[high(TenPowers)];
-       dec(TenPower,high(TenPowers));
-      end;
-      if TenPower>0 then begin
-       ResultCasted^.Value:=ResultCasted^.Value*TenPowers[TenPower];
-      end;
-     end else begin
-      TenPower:=-TenPower;
-      while TenPower>high(TenPowers) do begin
-       ResultCasted^.Value:=ResultCasted^.Value/TenPowers[high(TenPowers)];
-       dec(TenPower,high(TenPowers));
-      end;
-      if TenPower>0 then begin
-       ResultCasted^.Value:=ResultCasted^.Value/TenPowers[TenPower];
-      end;
-     end;
-    finally
-     if OldFPUExceptionMask<>DtoAFPUExceptionMask then begin
-      SetExceptionMask(OldFPUExceptionMask);
-     end;
-     if OldFPUPrecisionMode<>DtoAFPUPrecisionMode then begin
-      SetPrecisionMode(OldFPUPrecisionMode);
-     end;
-     if OldFPURoundingMode<>NewFPURoundingMode then begin
-      SetRoundMode(OldFPURoundingMode);
-     end;
-    end;
-   end;
-   if Negative then begin
-    ResultCasted^.Hi:=ResultCasted^.Hi or $80000000;
-   end;
-   if assigned(OK) then begin
-    OK^:=true;
-   end;
-  end else begin
-   i:=StoredDigitPos;
-   GetMem(MantissaMultiplicator,SizeOf(TWords));
-   GetMem(Mantissa,SizeOf(TWords));
-   GetMem(Temp,SizeOf(TTemp));
-   GetMem(Digits,SizeOf(TDigits));
-   try
-    FillChar(Digits^,SizeOf(TDigits),#0);
-
-    DigitPos:=0;
-    TenPower:=0;
-    HasDigits:=false;
-    Started:=false;
-    ExponentNegative:=false;
-    ExponentValue:=0;
-    while (i<=length(StringValue)) and (StringValue[i]='0') do begin
-     HasDigits:=true;
-     inc(i);
-    end;
-    while (i<=length(StringValue)) and (StringValue[i] in ['0'..'9']) do begin
-     HasDigits:=true;
-     Started:=true;
-     if DigitPos<=high(TDigits) then begin
-      Digits^[DigitPos]:=ord(StringValue[i])-ord('0');
-      inc(DigitPos);
-     end;
-     inc(TenPower);
-     inc(i);
-    end;
-    if (i<=length(StringValue)) and (StringValue[i]='.') then begin
-     inc(i);
-     if not Started then begin
-      while (i<=length(StringValue)) and (StringValue[i]='0') do begin
-       HasDigits:=true;
-       dec(TenPower);
-       inc(i);
-      end;
-     end;
-     while (i<=length(StringValue)) and (StringValue[i] in ['0'..'9']) do begin
-      HasDigits:=true;
-      if DigitPos<=high(TDigits) then begin
-       Digits^[DigitPos]:=ord(StringValue[i])-ord('0');
-       inc(DigitPos);
-      end;
-      inc(i);
-     end;
-    end;
-    if HasDigits then begin
-     if (i<=length(StringValue)) and (StringValue[i] in ['e','E']) then begin
-      inc(i);
-      if (i<=length(StringValue)) and (StringValue[i] in ['+','-']) then begin
-       ExponentNegative:=StringValue[i]='-';
-       inc(i);
-      end;
-      HasDigits:=false;
-      while (i<=length(StringValue)) and (StringValue[i] in ['0'..'9']) do begin
-       ExponentValue:=(ExponentValue*10)+TPasDblStrUtilsInt32(ord(StringValue[i])-ord('0'));
-       HasDigits:=true;
-       inc(i);
-      end;
-     end;
-     if HasDigits then begin
-      if ExponentNegative then begin
-       dec(TenPower,ExponentValue);
-      end else begin
-       inc(TenPower,ExponentValue);
-      end;
-
-      if TenPower<=-324 then begin
-       if Negative then begin
-        ResultCasted^.Hi:=$80000000;
-        ResultCasted^.Lo:=$00000000;
-       end else begin
-        ResultCasted^.Hi:=$00000000;
-        ResultCasted^.Lo:=$00000000;
-       end;
-       if assigned(OK) then begin
-        OK^:=true;
-       end;
-       exit;
-      end else if TenPower>=310 then begin
-       if Value=0 then begin
-        if Negative then begin
-         ResultCasted^.Hi:=$80000000;
-         ResultCasted^.Lo:=$00000000;
-        end else begin
-         ResultCasted^.Hi:=$00000000;
-         ResultCasted^.Lo:=$00000000;
-        end;
-       end else begin
-        if Negative then begin
-         ResultCasted^.Hi:=$fff00000;
-         ResultCasted^.Lo:=$00000000;
-        end else begin
-         ResultCasted^.Hi:=$7ff00000;
-         ResultCasted^.Lo:=$00000000;
-        end;
-       end;
-       if assigned(OK) then begin
-        OK^:=true;
-       end;
-       exit;
-      end;
-
-      FillChar(Mantissa^,sizeof(TWords),#0);
-
-      Bit:=WordTopBit;
-      StoredDigitPos:=0;
-      Started:=false;
-      TwoPower:=0;
-      MantissaPosition:=0;
-      while MantissaPosition<MantissaWords do begin
-       Carry:=0;
-       while (DigitPos>StoredDigitPos) and (Digits^[DigitPos-1]=0) do begin
-        dec(DigitPos);
-       end;
-       if DigitPos<=StoredDigitPos then begin
-        break;
-       end;
-       DigitPosBackwards:=DigitPos;
-       while DigitPosBackwards>StoredDigitPos do begin
-        dec(DigitPosBackwards);
-        i:=(2*Digits^[DigitPosBackwards])+Carry;
-        if i>=10 then begin
-         dec(i,10);
-         Carry:=1;
-        end else begin
-         Carry:=0;
-        end;
-        Digits^[DigitPosBackwards]:=i;
-       end;
-       if Carry<>0 then begin
-        Mantissa^[MantissaPosition]:=Mantissa^[MantissaPosition] or Bit;
-        Started:=true;
-       end;
-       if Started then begin
-        if Bit=1 then begin
-         Bit:=WordTopBit;
-         inc(MantissaPosition);
-        end else begin
-         Bit:=Bit shr 1;
-        end;
-       end else begin
-        dec(TwoPower);
-       end;
-      end;
-      inc(TwoPower,TenPower);
-
-      if TenPower<0 then begin
-       for i:=0 to high(TWords)-1 do begin
-        MantissaMultiplicator^[i]:=$cccc;
-       end;
-       MantissaMultiplicator^[high(TWords)]:=$cccd;
-       ExtraTwos:=-2;
-       TenPower:=-TenPower;
-      end else if TenPower>0 then begin
-       MantissaMultiplicator^[0]:=$a000;
-       for i:=1 to high(TWords) do begin
-        MantissaMultiplicator^[i]:=$0000;
-       end;
-       ExtraTwos:=3;
-      end else begin
-       ExtraTwos:=0;
-      end;
-      while TenPower<>0 do begin
-       if (TenPower and 1)<>0 then begin
-        inc(TwoPower,ExtraTwos+MantissaMultiply(Mantissa,MantissaMultiplicator));
-       end;
-       inc(ExtraTwos,ExtraTwos+MantissaMultiply(MantissaMultiplicator,MantissaMultiplicator));
-       TenPower:=TenPower shr 1;
-      end;
-
-      Exponent:=TwoPower;
-      if (Mantissa^[0] and WordTopBit)<>0 then begin
-       dec(Exponent);
-
-       if (Exponent>=(2-IEEEFormatExpMax)) and (Exponent<=IEEEFormatExpMax) then begin
-        inc(Exponent,IEEEFormatExpMax-1);
-        MantissaShiftRight(Mantissa^,IEEEFormatExponent+IEEEFormatExplicit);
-        MantissaRound(Negative,Mantissa^,IEEEFormatBits);
-        if MantissaTestBit(Mantissa^,IEEEFormatExponent+IEEEFormatExplicit-1) then begin
-         MantissaShiftRight(Mantissa^,1);
-         inc(Exponent);
-        end;
-        if Exponent>=(IEEEFormatExpMax shl 1)-1 then begin
-         ResultCasted^.Hi:=$7ff00000;
-         ResultCasted^.Lo:=$00000000;
-        end else begin
-         ResultCasted^.Hi:=(((Exponent shl 4) or (Mantissa^[0] and $f)) shl 16) or Mantissa^[1];
-         ResultCasted^.Lo:=(Mantissa^[2] shl 16) or Mantissa^[3];
-        end;
-       end else if Exponent>0 then begin
-        ResultCasted^.Hi:=$7ff00000;
-        ResultCasted^.Lo:=$00000000;
-       end else begin
-        Shift:=IEEEFormatExplicit-(Exponent+(IEEEFormatExpMax-(2+IEEEFormatExponent)));
-        MantissaShiftRight(Mantissa^,Shift);
-        MantissaRound(Negative,Mantissa^,IEEEFormatBits);
-        if (Mantissa^[IEEEFormatOnePos] and IEEEFormatOneMask)<>0 then begin
-         Exponent:=1;
-         if IEEEFormatExplicit=0 then begin
-          Mantissa^[IEEEFormatOnePos]:=Mantissa^[IEEEFormatOnePos] and not IEEEFormatOneMask;
-         end;
-         Mantissa^[0]:=Mantissa^[0] or (Exponent shl (WordBitMask-IEEEFormatExponent));
-         ResultCasted^.Hi:=(((Exponent shl 4) or (Mantissa^[0] and $f)) shl 16) or Mantissa^[1];
-         ResultCasted^.Lo:=(Mantissa^[2] shl 16) or Mantissa^[3];
-        end else begin
-         if MantissaIsZero(Mantissa^) then begin
-          ResultCasted^.Hi:=$00000000;
-          ResultCasted^.Lo:=$00000000;
-         end else begin
-          ResultCasted^.Hi:=(Mantissa^[0] shl 16) or Mantissa^[1];
-          ResultCasted^.Lo:=(Mantissa^[2] shl 16) or Mantissa^[3];
-         end;
-        end;
-       end;
-      end else begin
-       ResultCasted^.Hi:=$00000000;
-       ResultCasted^.Lo:=$00000000;
-      end;
-      if Negative then begin
-       ResultCasted^.Hi:=ResultCasted^.Hi or $80000000;
-      end;
-      if assigned(OK) then begin
-       OK^:=true;
-      end;
-     end;
-    end;
-   finally
-    FreeMem(MantissaMultiplicator);
-    FreeMem(Mantissa);
-    FreeMem(Temp);
-    FreeMem(Digits);
-   end;
+   exit;
   end;
  end;
 end;
 
-function ConvertDoubleToString(const AValue:TPasDblStrUtilsDouble;const OutputMode:TPasDblStrUtilsOutputMode=omStandard;RequestedDigits:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsString;
+function ConvertStringToDouble(const aStringValue:TPasDblStrUtilsString;const aRoundingMode:TPasDblStrUtilsRoundingMode=rmNearest;const aOK:PPasDblStrUtilsBoolean=nil;const aBase:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsDouble;
+begin
+ result:=ConvertStringToDouble(@aStringValue[1],length(aStringValue),aRoundingMode,aOK,aBase);
+end;
+
+function ConvertDoubleToString(const aValue:TPasDblStrUtilsDouble;const aOutputMode:TPasDblStrUtilsOutputMode=omStandard;aRequestedDigits:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsString;
 const SignificantMantissaSize=64;
       MinimalTargetExponent=-60;
       MaximalTargetExponent=-32;
@@ -5535,36 +5338,44 @@ var OK,Fast:TPasDblStrUtilsBoolean;
     Len,DecimalPoint,ZeroPrefixLength,ZeroPostfixLength,i:TPasDblStrUtilsInt32;
     LocalOutputMode:TPasDblStrUtilsOutputMode;
 begin
- if IsNaN(AValue) then begin
-  result:='NaN';
- end else if IsZero(AValue) then begin
+ if IsNaN(aValue) then begin
+  if IsNegative(aValue) then begin
+   result:='-NaN';
+  end else begin
+   result:='NaN';
+  end;
+ end else if IsZero(aValue) then begin
   result:='0';
- end else if IsNegInfinite(AValue) then begin
+ end else if IsNegInfinite(aValue) then begin
   result:='-Infinity';
- end else if IsNegative(AValue) then begin
-  result:='-'+ConvertDoubleToString(DoubleAbsolute(AValue),OutputMode,RequestedDigits);
- end else if IsInfinite(AValue) then begin
+ end else if IsInfinite(aValue) then begin
   result:='Infinity';
+ end else if IsNegative(aValue) then begin
+  result:='-'+ConvertDoubleToString(DoubleAbsolute(aValue),aOutputMode,aRequestedDigits);
  end else begin
   result:='0';
-  if AValue<>0 then begin
+  if aValue<>0 then begin
    Len:=0;
    DecimalPoint:=0;
    OK:=false;
    Fast:=false;
-   if ((OutputMode=omFixed) and (AValue>=1e21)) or ((OutputMode=omRadix) and (RequestedDigits=10)) then begin
+   if ((aOutputMode=omFixed) and (aValue>=1e21)) or ((aOutputMode=omRadix) and (aRequestedDigits=10)) then begin
     LocalOutputMode:=omStandard;
    end else begin
-    LocalOutputMode:=OutputMode;
+    LocalOutputMode:=aOutputMode;
    end;
    case LocalOutputMode of
     omStandard:begin
-     result:=RyuDoubleToString(aValue,false);
-     OK:=true;
+     if aRequestedDigits<0 then begin
+      result:=RyuDoubleToString(aValue,false);
+      OK:=true;
+     end;
     end;
     omStandardExponential:begin
-     result:=RyuDoubleToString(aValue,true);
-     OK:=true;
+     if aRequestedDigits<0 then begin
+      result:=RyuDoubleToString(aValue,true);
+      OK:=true;
+     end;
     end;
     else begin
     end;
@@ -5572,26 +5383,26 @@ begin
    if not OK then begin
     case LocalOutputMode of
      omStandard,omStandardExponential:begin
-      OK:=DoFastShortest(AValue,result,Len,DecimalPoint);
+      OK:=DoFastShortest(aValue,result,Len,DecimalPoint);
       inc(DecimalPoint,Len);
      end;
      omFixed:begin
-      OK:=DoFastFixed(AValue,RequestedDigits,result,Len,DecimalPoint);
+      OK:=DoFastFixed(aValue,aRequestedDigits,result,Len,DecimalPoint);
      end;
      omExponential,omPrecision:begin
-      if RequestedDigits<=0 then begin
-       OK:=DoFastShortest(AValue,result,Len,DecimalPoint);
+      if aRequestedDigits<=0 then begin
+       OK:=DoFastShortest(aValue,result,Len,DecimalPoint);
        inc(DecimalPoint,Len);
-       RequestedDigits:=Len-1;
+       aRequestedDigits:=Len-1;
       end else begin
-       OK:=DoFastPrecision(AValue,RequestedDigits,result,Len,DecimalPoint);
+       OK:=DoFastPrecision(aValue,aRequestedDigits,result,Len,DecimalPoint);
        inc(DecimalPoint,Len);
       end;
-      Assert((Len>0) and (Len<=(RequestedDigits+1)));
+      Assert((Len>0) and (Len<=(aRequestedDigits+1)));
      end;
      omRadix:begin
-      if ((RequestedDigits>=2) and (RequestedDigits<=36)) and (IsFinite(AValue) and (AValue<4294967295.0) and (System.Int(AValue)=AValue)) then begin
-       FastDoubleToRadix(AValue,RequestedDigits,result,Len,DecimalPoint);
+      if ((aRequestedDigits>=2) and (aRequestedDigits<=36)) and (IsFinite(aValue) and (aValue<4294967295.0) and (System.Int(aValue)=aValue)) then begin
+       FastDoubleToRadix(aValue,aRequestedDigits,result,Len,DecimalPoint);
        Fast:=true;
        OK:=true;
       end;
@@ -5600,27 +5411,27 @@ begin
     if not OK then begin
      case LocalOutputMode of
       omStandard,omStandardExponential:begin
-       DoubleToDecimal(AValue,ModeShortest,RequestedDigits,result,Len,DecimalPoint);
+       DoubleToDecimal(aValue,ModeShortest,aRequestedDigits,result,Len,DecimalPoint);
        OK:=true;
       end;
       omFixed:begin
-       DoubleToDecimal(AValue,ModeFixed,RequestedDigits,result,Len,DecimalPoint);
+       DoubleToDecimal(aValue,ModeFixed,aRequestedDigits,result,Len,DecimalPoint);
        OK:=true;
       end;
       omExponential,omPrecision:begin
-       if RequestedDigits<=0 then begin
-        DoubleToDecimal(AValue,ModeShortest,RequestedDigits,result,Len,DecimalPoint);
+       if aRequestedDigits<=0 then begin
+        DoubleToDecimal(aValue,ModeShortest,aRequestedDigits,result,Len,DecimalPoint);
         OK:=true;
-        RequestedDigits:=Len-1;
+        aRequestedDigits:=Len-1;
        end else begin
-        DoubleToDecimal(AValue,ModePrecision,RequestedDigits,result,Len,DecimalPoint);
+        DoubleToDecimal(aValue,ModePrecision,aRequestedDigits,result,Len,DecimalPoint);
         OK:=true;
        end;
-       Assert((Len>0) and (Len<=(RequestedDigits+1)));
+       Assert((Len>0) and (Len<=(aRequestedDigits+1)));
       end;
       omRadix:begin
-       if (RequestedDigits>=2) and (RequestedDigits<=36) then begin
-        DoubleToRadix(AValue,RequestedDigits,result,Len,DecimalPoint);
+       if (aRequestedDigits>=2) and (aRequestedDigits<=36) then begin
+        DoubleToRadix(aValue,aRequestedDigits,result,Len,DecimalPoint);
         OK:=true;
        end;
       end;
@@ -5668,8 +5479,8 @@ begin
         ZeroPrefixLength:=(-DecimalPoint)+1;
         DecimalPoint:=1;
        end;
-       if (ZeroPrefixLength+Len)<(DecimalPoint+RequestedDigits) then begin
-        ZeroPostfixLength:=((DecimalPoint+RequestedDigits)-Len)-ZeroPrefixLength;
+       if (ZeroPrefixLength+Len)<(DecimalPoint+aRequestedDigits) then begin
+        ZeroPostfixLength:=((DecimalPoint+aRequestedDigits)-Len)-ZeroPrefixLength;
        end;
        for i:=1 to ZeroPrefixLength do begin
         result:='0'+result;
@@ -5677,17 +5488,17 @@ begin
        for i:=1 to ZeroPostfixLength do begin
         result:=result+'0';
        end;
-       if (RequestedDigits>0) and (DecimalPoint>0) and (DecimalPoint<=length(result)) then begin
+       if (aRequestedDigits>0) and (DecimalPoint>0) and (DecimalPoint<=length(result)) then begin
         Insert('.',result,DecimalPoint+1);
        end;
       end;
       omExponential:begin
-       if RequestedDigits<1 then begin
-        RequestedDigits:=1;
+       if aRequestedDigits<1 then begin
+        aRequestedDigits:=1;
        end;
-       if RequestedDigits<>1 then begin
+       if aRequestedDigits<>1 then begin
         Insert('.',result,2);
-        for i:=Len+1 to RequestedDigits do begin
+        for i:=Len+1 to aRequestedDigits do begin
          result:=result+'0';
         end;
        end else begin
@@ -5700,13 +5511,13 @@ begin
        end;
       end;
       omPrecision:begin
-       if RequestedDigits<1 then begin
-        RequestedDigits:=1;
+       if aRequestedDigits<1 then begin
+        aRequestedDigits:=1;
        end;
-       if (DecimalPoint<-6) or (DecimalPoint>=RequestedDigits) then begin
-        if RequestedDigits<>1 then begin
+       if (DecimalPoint<-6) or (DecimalPoint>=aRequestedDigits) then begin
+        if aRequestedDigits<>1 then begin
          Insert('.',result,2);
-         for i:=Len+1 to RequestedDigits do begin
+         for i:=Len+1 to aRequestedDigits do begin
           result:=result+'0';
          end;
         end else begin
@@ -5723,15 +5534,15 @@ begin
           result:='0'+result;
          end;
          result:='0.'+result;
-         for i:=Len+1 to RequestedDigits do begin
+         for i:=Len+1 to aRequestedDigits do begin
           result:=result+'0';
          end;
         end else begin
-         SetLength(result,RequestedDigits);
-         for i:=Len+1 to RequestedDigits do begin
+         SetLength(result,aRequestedDigits);
+         for i:=Len+1 to aRequestedDigits do begin
           result[i]:='0';
          end;
-         if DecimalPoint<RequestedDigits then begin
+         if DecimalPoint<aRequestedDigits then begin
           if Len<>1 then begin
            Insert('.',result,DecimalPoint+1);
           end;
