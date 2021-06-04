@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2021-06-04-00-43-0000                       *
+ *                        Version 2021-06-04-00-45-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -3458,7 +3458,7 @@ begin
    end;
   end;
  end;
- if HasDigits then begin
+ if HasDigits and (StringPosition>=aStringLength) then begin
   result:=ComputeFloat64(Base10Exponent,Base10Mantissa,Negative,aOK);
  end else begin
   result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
