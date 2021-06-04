@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2021-06-04-23-10-0000                       *
+ *                        Version 2021-06-04-00-43-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -418,6 +418,9 @@ type PPasDblStrUtilsInt8=^TPasDblStrUtilsInt8;
 
 function FallbackStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aRoundingMode:TPasDblStrUtilsRoundingMode=rmNearest;const aOK:PPasDblStrUtilsBoolean=nil;const aBase:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsDouble; overload;
 function FallbackStringToDouble(const aStringValue:TPasDblStrUtilsString;const aRoundingMode:TPasDblStrUtilsRoundingMode=rmNearest;const aOK:PPasDblStrUtilsBoolean=nil;const aBase:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsDouble; overload;
+
+function EiselLemireStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aOK:PPasDblStrUtilsBoolean=nil;const aStrict:boolean=false):TPasDblStrUtilsDouble; overload;
+function EiselLemireStringToDouble(const aStringValue:TPasDblStrUtilsString;const aOK:PPasDblStrUtilsBoolean=nil;const aStrict:boolean=false):TPasDblStrUtilsDouble; overload;
 
 function RyuStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aOK:PPasDblStrUtilsBoolean=nil;const aStrict:boolean=false):TPasDblStrUtilsDouble; overload;
 function RyuStringToDouble(const aStringValue:TPasDblStrUtilsString;const aOK:PPasDblStrUtilsBoolean=nil;const aStrict:boolean=false):TPasDblStrUtilsDouble; overload;
@@ -2468,7 +2471,7 @@ const DOUBLE_POW5_INV_BITCOUNT=125;
         (TPasDblStrUtilsUInt64(3278889188817135834),TPasDblStrUtilsUInt64(1424047269444608885)),(TPasDblStrUtilsUInt64(8710297504448807696),TPasDblStrUtilsUInt64(1780059086805761106))
        );
 
-function UInt64Bits2Double(const Bits:TPasDblStrUtilsUInt64):TPasDblStrUtilsDouble;
+function UInt64Bits2Double(const Bits:TPasDblStrUtilsUInt64):TPasDblStrUtilsDouble; {$ifdef caninline}inline;{$endif}
 begin
  result:=TPasDblStrUtilsDouble(Pointer(@Bits)^);
 end;
@@ -2627,7 +2630,847 @@ begin
  result:=FallbackStringToDouble(@aStringValue[1],length(aStringValue),aRoundingMode,aOK,aBase);
 end;
 
-function RyuStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aOK:PPasDblStrUtilsBoolean=nil;const aStrict:boolean=false):TPasDblStrUtilsDouble; overload;
+const FASTFLOAT_SMALLEST_POWER=-325;
+      FASTFLOAT_LARGEST_POWER=308;
+
+function ComputeFloat64(const aBase10Exponent:TPasDblStrUtilsInt64;aBase10Mantissa:TPasDblStrUtilsUInt64;const aNegative:TPasDblStrUtilsBoolean;const aSuccess:PPasDblStrUtilsBoolean):TPasDblStrUtilsDouble;
+const PowerOfTen:array[0..22] of TPasDblStrUtilsDouble=(1e0,1e1,1e2,1e3,1e4,1e5,1e6,1e7,1e8,1e9,1e10,1e11,1e12,1e13,1e14,1e15,1e16,1e17,1e18,1e19,1e20,1e21,1e22);
+      Mantissa64:array[FASTFLOAT_SMALLEST_POWER..FASTFLOAT_LARGEST_POWER] of TPasDblStrUtilsUInt64=
+       (
+        TPasDblStrUtilsUInt64($a5ced43b7e3e9188),TPasDblStrUtilsUInt64($cf42894a5dce35ea),
+        TPasDblStrUtilsUInt64($818995ce7aa0e1b2),TPasDblStrUtilsUInt64($a1ebfb4219491a1f),
+        TPasDblStrUtilsUInt64($ca66fa129f9b60a6),TPasDblStrUtilsUInt64($fd00b897478238d0),
+        TPasDblStrUtilsUInt64($9e20735e8cb16382),TPasDblStrUtilsUInt64($c5a890362fddbc62),
+        TPasDblStrUtilsUInt64($f712b443bbd52b7b),TPasDblStrUtilsUInt64($9a6bb0aa55653b2d),
+        TPasDblStrUtilsUInt64($c1069cd4eabe89f8),TPasDblStrUtilsUInt64($f148440a256e2c76),
+        TPasDblStrUtilsUInt64($96cd2a865764dbca),TPasDblStrUtilsUInt64($bc807527ed3e12bc),
+        TPasDblStrUtilsUInt64($eba09271e88d976b),TPasDblStrUtilsUInt64($93445b8731587ea3),
+        TPasDblStrUtilsUInt64($b8157268fdae9e4c),TPasDblStrUtilsUInt64($e61acf033d1a45df),
+        TPasDblStrUtilsUInt64($8fd0c16206306bab),TPasDblStrUtilsUInt64($b3c4f1ba87bc8696),
+        TPasDblStrUtilsUInt64($e0b62e2929aba83c),TPasDblStrUtilsUInt64($8c71dcd9ba0b4925),
+        TPasDblStrUtilsUInt64($af8e5410288e1b6f),TPasDblStrUtilsUInt64($db71e91432b1a24a),
+        TPasDblStrUtilsUInt64($892731ac9faf056e),TPasDblStrUtilsUInt64($ab70fe17c79ac6ca),
+        TPasDblStrUtilsUInt64($d64d3d9db981787d),TPasDblStrUtilsUInt64($85f0468293f0eb4e),
+        TPasDblStrUtilsUInt64($a76c582338ed2621),TPasDblStrUtilsUInt64($d1476e2c07286faa),
+        TPasDblStrUtilsUInt64($82cca4db847945ca),TPasDblStrUtilsUInt64($a37fce126597973c),
+        TPasDblStrUtilsUInt64($cc5fc196fefd7d0c),TPasDblStrUtilsUInt64($ff77b1fcbebcdc4f),
+        TPasDblStrUtilsUInt64($9faacf3df73609b1),TPasDblStrUtilsUInt64($c795830d75038c1d),
+        TPasDblStrUtilsUInt64($f97ae3d0d2446f25),TPasDblStrUtilsUInt64($9becce62836ac577),
+        TPasDblStrUtilsUInt64($c2e801fb244576d5),TPasDblStrUtilsUInt64($f3a20279ed56d48a),
+        TPasDblStrUtilsUInt64($9845418c345644d6),TPasDblStrUtilsUInt64($be5691ef416bd60c),
+        TPasDblStrUtilsUInt64($edec366b11c6cb8f),TPasDblStrUtilsUInt64($94b3a202eb1c3f39),
+        TPasDblStrUtilsUInt64($b9e08a83a5e34f07),TPasDblStrUtilsUInt64($e858ad248f5c22c9),
+        TPasDblStrUtilsUInt64($91376c36d99995be),TPasDblStrUtilsUInt64($b58547448ffffb2d),
+        TPasDblStrUtilsUInt64($e2e69915b3fff9f9),TPasDblStrUtilsUInt64($8dd01fad907ffc3b),
+        TPasDblStrUtilsUInt64($b1442798f49ffb4a),TPasDblStrUtilsUInt64($dd95317f31c7fa1d),
+        TPasDblStrUtilsUInt64($8a7d3eef7f1cfc52),TPasDblStrUtilsUInt64($ad1c8eab5ee43b66),
+        TPasDblStrUtilsUInt64($d863b256369d4a40),TPasDblStrUtilsUInt64($873e4f75e2224e68),
+        TPasDblStrUtilsUInt64($a90de3535aaae202),TPasDblStrUtilsUInt64($d3515c2831559a83),
+        TPasDblStrUtilsUInt64($8412d9991ed58091),TPasDblStrUtilsUInt64($a5178fff668ae0b6),
+        TPasDblStrUtilsUInt64($ce5d73ff402d98e3),TPasDblStrUtilsUInt64($80fa687f881c7f8e),
+        TPasDblStrUtilsUInt64($a139029f6a239f72),TPasDblStrUtilsUInt64($c987434744ac874e),
+        TPasDblStrUtilsUInt64($fbe9141915d7a922),TPasDblStrUtilsUInt64($9d71ac8fada6c9b5),
+        TPasDblStrUtilsUInt64($c4ce17b399107c22),TPasDblStrUtilsUInt64($f6019da07f549b2b),
+        TPasDblStrUtilsUInt64($99c102844f94e0fb),TPasDblStrUtilsUInt64($c0314325637a1939),
+        TPasDblStrUtilsUInt64($f03d93eebc589f88),TPasDblStrUtilsUInt64($96267c7535b763b5),
+        TPasDblStrUtilsUInt64($bbb01b9283253ca2),TPasDblStrUtilsUInt64($ea9c227723ee8bcb),
+        TPasDblStrUtilsUInt64($92a1958a7675175f),TPasDblStrUtilsUInt64($b749faed14125d36),
+        TPasDblStrUtilsUInt64($e51c79a85916f484),TPasDblStrUtilsUInt64($8f31cc0937ae58d2),
+        TPasDblStrUtilsUInt64($b2fe3f0b8599ef07),TPasDblStrUtilsUInt64($dfbdcece67006ac9),
+        TPasDblStrUtilsUInt64($8bd6a141006042bd),TPasDblStrUtilsUInt64($aecc49914078536d),
+        TPasDblStrUtilsUInt64($da7f5bf590966848),TPasDblStrUtilsUInt64($888f99797a5e012d),
+        TPasDblStrUtilsUInt64($aab37fd7d8f58178),TPasDblStrUtilsUInt64($d5605fcdcf32e1d6),
+        TPasDblStrUtilsUInt64($855c3be0a17fcd26),TPasDblStrUtilsUInt64($a6b34ad8c9dfc06f),
+        TPasDblStrUtilsUInt64($d0601d8efc57b08b),TPasDblStrUtilsUInt64($823c12795db6ce57),
+        TPasDblStrUtilsUInt64($a2cb1717b52481ed),TPasDblStrUtilsUInt64($cb7ddcdda26da268),
+        TPasDblStrUtilsUInt64($fe5d54150b090b02),TPasDblStrUtilsUInt64($9efa548d26e5a6e1),
+        TPasDblStrUtilsUInt64($c6b8e9b0709f109a),TPasDblStrUtilsUInt64($f867241c8cc6d4c0),
+        TPasDblStrUtilsUInt64($9b407691d7fc44f8),TPasDblStrUtilsUInt64($c21094364dfb5636),
+        TPasDblStrUtilsUInt64($f294b943e17a2bc4),TPasDblStrUtilsUInt64($979cf3ca6cec5b5a),
+        TPasDblStrUtilsUInt64($bd8430bd08277231),TPasDblStrUtilsUInt64($ece53cec4a314ebd),
+        TPasDblStrUtilsUInt64($940f4613ae5ed136),TPasDblStrUtilsUInt64($b913179899f68584),
+        TPasDblStrUtilsUInt64($e757dd7ec07426e5),TPasDblStrUtilsUInt64($9096ea6f3848984f),
+        TPasDblStrUtilsUInt64($b4bca50b065abe63),TPasDblStrUtilsUInt64($e1ebce4dc7f16dfb),
+        TPasDblStrUtilsUInt64($8d3360f09cf6e4bd),TPasDblStrUtilsUInt64($b080392cc4349dec),
+        TPasDblStrUtilsUInt64($dca04777f541c567),TPasDblStrUtilsUInt64($89e42caaf9491b60),
+        TPasDblStrUtilsUInt64($ac5d37d5b79b6239),TPasDblStrUtilsUInt64($d77485cb25823ac7),
+        TPasDblStrUtilsUInt64($86a8d39ef77164bc),TPasDblStrUtilsUInt64($a8530886b54dbdeb),
+        TPasDblStrUtilsUInt64($d267caa862a12d66),TPasDblStrUtilsUInt64($8380dea93da4bc60),
+        TPasDblStrUtilsUInt64($a46116538d0deb78),TPasDblStrUtilsUInt64($cd795be870516656),
+        TPasDblStrUtilsUInt64($806bd9714632dff6),TPasDblStrUtilsUInt64($a086cfcd97bf97f3),
+        TPasDblStrUtilsUInt64($c8a883c0fdaf7df0),TPasDblStrUtilsUInt64($fad2a4b13d1b5d6c),
+        TPasDblStrUtilsUInt64($9cc3a6eec6311a63),TPasDblStrUtilsUInt64($c3f490aa77bd60fc),
+        TPasDblStrUtilsUInt64($f4f1b4d515acb93b),TPasDblStrUtilsUInt64($991711052d8bf3c5),
+        TPasDblStrUtilsUInt64($bf5cd54678eef0b6),TPasDblStrUtilsUInt64($ef340a98172aace4),
+        TPasDblStrUtilsUInt64($9580869f0e7aac0e),TPasDblStrUtilsUInt64($bae0a846d2195712),
+        TPasDblStrUtilsUInt64($e998d258869facd7),TPasDblStrUtilsUInt64($91ff83775423cc06),
+        TPasDblStrUtilsUInt64($b67f6455292cbf08),TPasDblStrUtilsUInt64($e41f3d6a7377eeca),
+        TPasDblStrUtilsUInt64($8e938662882af53e),TPasDblStrUtilsUInt64($b23867fb2a35b28d),
+        TPasDblStrUtilsUInt64($dec681f9f4c31f31),TPasDblStrUtilsUInt64($8b3c113c38f9f37e),
+        TPasDblStrUtilsUInt64($ae0b158b4738705e),TPasDblStrUtilsUInt64($d98ddaee19068c76),
+        TPasDblStrUtilsUInt64($87f8a8d4cfa417c9),TPasDblStrUtilsUInt64($a9f6d30a038d1dbc),
+        TPasDblStrUtilsUInt64($d47487cc8470652b),TPasDblStrUtilsUInt64($84c8d4dfd2c63f3b),
+        TPasDblStrUtilsUInt64($a5fb0a17c777cf09),TPasDblStrUtilsUInt64($cf79cc9db955c2cc),
+        TPasDblStrUtilsUInt64($81ac1fe293d599bf),TPasDblStrUtilsUInt64($a21727db38cb002f),
+        TPasDblStrUtilsUInt64($ca9cf1d206fdc03b),TPasDblStrUtilsUInt64($fd442e4688bd304a),
+        TPasDblStrUtilsUInt64($9e4a9cec15763e2e),TPasDblStrUtilsUInt64($c5dd44271ad3cdba),
+        TPasDblStrUtilsUInt64($f7549530e188c128),TPasDblStrUtilsUInt64($9a94dd3e8cf578b9),
+        TPasDblStrUtilsUInt64($c13a148e3032d6e7),TPasDblStrUtilsUInt64($f18899b1bc3f8ca1),
+        TPasDblStrUtilsUInt64($96f5600f15a7b7e5),TPasDblStrUtilsUInt64($bcb2b812db11a5de),
+        TPasDblStrUtilsUInt64($ebdf661791d60f56),TPasDblStrUtilsUInt64($936b9fcebb25c995),
+        TPasDblStrUtilsUInt64($b84687c269ef3bfb),TPasDblStrUtilsUInt64($e65829b3046b0afa),
+        TPasDblStrUtilsUInt64($8ff71a0fe2c2e6dc),TPasDblStrUtilsUInt64($b3f4e093db73a093),
+        TPasDblStrUtilsUInt64($e0f218b8d25088b8),TPasDblStrUtilsUInt64($8c974f7383725573),
+        TPasDblStrUtilsUInt64($afbd2350644eeacf),TPasDblStrUtilsUInt64($dbac6c247d62a583),
+        TPasDblStrUtilsUInt64($894bc396ce5da772),TPasDblStrUtilsUInt64($ab9eb47c81f5114f),
+        TPasDblStrUtilsUInt64($d686619ba27255a2),TPasDblStrUtilsUInt64($8613fd0145877585),
+        TPasDblStrUtilsUInt64($a798fc4196e952e7),TPasDblStrUtilsUInt64($d17f3b51fca3a7a0),
+        TPasDblStrUtilsUInt64($82ef85133de648c4),TPasDblStrUtilsUInt64($a3ab66580d5fdaf5),
+        TPasDblStrUtilsUInt64($cc963fee10b7d1b3),TPasDblStrUtilsUInt64($ffbbcfe994e5c61f),
+        TPasDblStrUtilsUInt64($9fd561f1fd0f9bd3),TPasDblStrUtilsUInt64($c7caba6e7c5382c8),
+        TPasDblStrUtilsUInt64($f9bd690a1b68637b),TPasDblStrUtilsUInt64($9c1661a651213e2d),
+        TPasDblStrUtilsUInt64($c31bfa0fe5698db8),TPasDblStrUtilsUInt64($f3e2f893dec3f126),
+        TPasDblStrUtilsUInt64($986ddb5c6b3a76b7),TPasDblStrUtilsUInt64($be89523386091465),
+        TPasDblStrUtilsUInt64($ee2ba6c0678b597f),TPasDblStrUtilsUInt64($94db483840b717ef),
+        TPasDblStrUtilsUInt64($ba121a4650e4ddeb),TPasDblStrUtilsUInt64($e896a0d7e51e1566),
+        TPasDblStrUtilsUInt64($915e2486ef32cd60),TPasDblStrUtilsUInt64($b5b5ada8aaff80b8),
+        TPasDblStrUtilsUInt64($e3231912d5bf60e6),TPasDblStrUtilsUInt64($8df5efabc5979c8f),
+        TPasDblStrUtilsUInt64($b1736b96b6fd83b3),TPasDblStrUtilsUInt64($ddd0467c64bce4a0),
+        TPasDblStrUtilsUInt64($8aa22c0dbef60ee4),TPasDblStrUtilsUInt64($ad4ab7112eb3929d),
+        TPasDblStrUtilsUInt64($d89d64d57a607744),TPasDblStrUtilsUInt64($87625f056c7c4a8b),
+        TPasDblStrUtilsUInt64($a93af6c6c79b5d2d),TPasDblStrUtilsUInt64($d389b47879823479),
+        TPasDblStrUtilsUInt64($843610cb4bf160cb),TPasDblStrUtilsUInt64($a54394fe1eedb8fe),
+        TPasDblStrUtilsUInt64($ce947a3da6a9273e),TPasDblStrUtilsUInt64($811ccc668829b887),
+        TPasDblStrUtilsUInt64($a163ff802a3426a8),TPasDblStrUtilsUInt64($c9bcff6034c13052),
+        TPasDblStrUtilsUInt64($fc2c3f3841f17c67),TPasDblStrUtilsUInt64($9d9ba7832936edc0),
+        TPasDblStrUtilsUInt64($c5029163f384a931),TPasDblStrUtilsUInt64($f64335bcf065d37d),
+        TPasDblStrUtilsUInt64($99ea0196163fa42e),TPasDblStrUtilsUInt64($c06481fb9bcf8d39),
+        TPasDblStrUtilsUInt64($f07da27a82c37088),TPasDblStrUtilsUInt64($964e858c91ba2655),
+        TPasDblStrUtilsUInt64($bbe226efb628afea),TPasDblStrUtilsUInt64($eadab0aba3b2dbe5),
+        TPasDblStrUtilsUInt64($92c8ae6b464fc96f),TPasDblStrUtilsUInt64($b77ada0617e3bbcb),
+        TPasDblStrUtilsUInt64($e55990879ddcaabd),TPasDblStrUtilsUInt64($8f57fa54c2a9eab6),
+        TPasDblStrUtilsUInt64($b32df8e9f3546564),TPasDblStrUtilsUInt64($dff9772470297ebd),
+        TPasDblStrUtilsUInt64($8bfbea76c619ef36),TPasDblStrUtilsUInt64($aefae51477a06b03),
+        TPasDblStrUtilsUInt64($dab99e59958885c4),TPasDblStrUtilsUInt64($88b402f7fd75539b),
+        TPasDblStrUtilsUInt64($aae103b5fcd2a881),TPasDblStrUtilsUInt64($d59944a37c0752a2),
+        TPasDblStrUtilsUInt64($857fcae62d8493a5),TPasDblStrUtilsUInt64($a6dfbd9fb8e5b88e),
+        TPasDblStrUtilsUInt64($d097ad07a71f26b2),TPasDblStrUtilsUInt64($825ecc24c873782f),
+        TPasDblStrUtilsUInt64($a2f67f2dfa90563b),TPasDblStrUtilsUInt64($cbb41ef979346bca),
+        TPasDblStrUtilsUInt64($fea126b7d78186bc),TPasDblStrUtilsUInt64($9f24b832e6b0f436),
+        TPasDblStrUtilsUInt64($c6ede63fa05d3143),TPasDblStrUtilsUInt64($f8a95fcf88747d94),
+        TPasDblStrUtilsUInt64($9b69dbe1b548ce7c),TPasDblStrUtilsUInt64($c24452da229b021b),
+        TPasDblStrUtilsUInt64($f2d56790ab41c2a2),TPasDblStrUtilsUInt64($97c560ba6b0919a5),
+        TPasDblStrUtilsUInt64($bdb6b8e905cb600f),TPasDblStrUtilsUInt64($ed246723473e3813),
+        TPasDblStrUtilsUInt64($9436c0760c86e30b),TPasDblStrUtilsUInt64($b94470938fa89bce),
+        TPasDblStrUtilsUInt64($e7958cb87392c2c2),TPasDblStrUtilsUInt64($90bd77f3483bb9b9),
+        TPasDblStrUtilsUInt64($b4ecd5f01a4aa828),TPasDblStrUtilsUInt64($e2280b6c20dd5232),
+        TPasDblStrUtilsUInt64($8d590723948a535f),TPasDblStrUtilsUInt64($b0af48ec79ace837),
+        TPasDblStrUtilsUInt64($dcdb1b2798182244),TPasDblStrUtilsUInt64($8a08f0f8bf0f156b),
+        TPasDblStrUtilsUInt64($ac8b2d36eed2dac5),TPasDblStrUtilsUInt64($d7adf884aa879177),
+        TPasDblStrUtilsUInt64($86ccbb52ea94baea),TPasDblStrUtilsUInt64($a87fea27a539e9a5),
+        TPasDblStrUtilsUInt64($d29fe4b18e88640e),TPasDblStrUtilsUInt64($83a3eeeef9153e89),
+        TPasDblStrUtilsUInt64($a48ceaaab75a8e2b),TPasDblStrUtilsUInt64($cdb02555653131b6),
+        TPasDblStrUtilsUInt64($808e17555f3ebf11),TPasDblStrUtilsUInt64($a0b19d2ab70e6ed6),
+        TPasDblStrUtilsUInt64($c8de047564d20a8b),TPasDblStrUtilsUInt64($fb158592be068d2e),
+        TPasDblStrUtilsUInt64($9ced737bb6c4183d),TPasDblStrUtilsUInt64($c428d05aa4751e4c),
+        TPasDblStrUtilsUInt64($f53304714d9265df),TPasDblStrUtilsUInt64($993fe2c6d07b7fab),
+        TPasDblStrUtilsUInt64($bf8fdb78849a5f96),TPasDblStrUtilsUInt64($ef73d256a5c0f77c),
+        TPasDblStrUtilsUInt64($95a8637627989aad),TPasDblStrUtilsUInt64($bb127c53b17ec159),
+        TPasDblStrUtilsUInt64($e9d71b689dde71af),TPasDblStrUtilsUInt64($9226712162ab070d),
+        TPasDblStrUtilsUInt64($b6b00d69bb55c8d1),TPasDblStrUtilsUInt64($e45c10c42a2b3b05),
+        TPasDblStrUtilsUInt64($8eb98a7a9a5b04e3),TPasDblStrUtilsUInt64($b267ed1940f1c61c),
+        TPasDblStrUtilsUInt64($df01e85f912e37a3),TPasDblStrUtilsUInt64($8b61313bbabce2c6),
+        TPasDblStrUtilsUInt64($ae397d8aa96c1b77),TPasDblStrUtilsUInt64($d9c7dced53c72255),
+        TPasDblStrUtilsUInt64($881cea14545c7575),TPasDblStrUtilsUInt64($aa242499697392d2),
+        TPasDblStrUtilsUInt64($d4ad2dbfc3d07787),TPasDblStrUtilsUInt64($84ec3c97da624ab4),
+        TPasDblStrUtilsUInt64($a6274bbdd0fadd61),TPasDblStrUtilsUInt64($cfb11ead453994ba),
+        TPasDblStrUtilsUInt64($81ceb32c4b43fcf4),TPasDblStrUtilsUInt64($a2425ff75e14fc31),
+        TPasDblStrUtilsUInt64($cad2f7f5359a3b3e),TPasDblStrUtilsUInt64($fd87b5f28300ca0d),
+        TPasDblStrUtilsUInt64($9e74d1b791e07e48),TPasDblStrUtilsUInt64($c612062576589dda),
+        TPasDblStrUtilsUInt64($f79687aed3eec551),TPasDblStrUtilsUInt64($9abe14cd44753b52),
+        TPasDblStrUtilsUInt64($c16d9a0095928a27),TPasDblStrUtilsUInt64($f1c90080baf72cb1),
+        TPasDblStrUtilsUInt64($971da05074da7bee),TPasDblStrUtilsUInt64($bce5086492111aea),
+        TPasDblStrUtilsUInt64($ec1e4a7db69561a5),TPasDblStrUtilsUInt64($9392ee8e921d5d07),
+        TPasDblStrUtilsUInt64($b877aa3236a4b449),TPasDblStrUtilsUInt64($e69594bec44de15b),
+        TPasDblStrUtilsUInt64($901d7cf73ab0acd9),TPasDblStrUtilsUInt64($b424dc35095cd80f),
+        TPasDblStrUtilsUInt64($e12e13424bb40e13),TPasDblStrUtilsUInt64($8cbccc096f5088cb),
+        TPasDblStrUtilsUInt64($afebff0bcb24aafe),TPasDblStrUtilsUInt64($dbe6fecebdedd5be),
+        TPasDblStrUtilsUInt64($89705f4136b4a597),TPasDblStrUtilsUInt64($abcc77118461cefc),
+        TPasDblStrUtilsUInt64($d6bf94d5e57a42bc),TPasDblStrUtilsUInt64($8637bd05af6c69b5),
+        TPasDblStrUtilsUInt64($a7c5ac471b478423),TPasDblStrUtilsUInt64($d1b71758e219652b),
+        TPasDblStrUtilsUInt64($83126e978d4fdf3b),TPasDblStrUtilsUInt64($a3d70a3d70a3d70a),
+        TPasDblStrUtilsUInt64($cccccccccccccccc),TPasDblStrUtilsUInt64($8000000000000000),
+        TPasDblStrUtilsUInt64($a000000000000000),TPasDblStrUtilsUInt64($c800000000000000),
+        TPasDblStrUtilsUInt64($fa00000000000000),TPasDblStrUtilsUInt64($9c40000000000000),
+        TPasDblStrUtilsUInt64($c350000000000000),TPasDblStrUtilsUInt64($f424000000000000),
+        TPasDblStrUtilsUInt64($9896800000000000),TPasDblStrUtilsUInt64($bebc200000000000),
+        TPasDblStrUtilsUInt64($ee6b280000000000),TPasDblStrUtilsUInt64($9502f90000000000),
+        TPasDblStrUtilsUInt64($ba43b74000000000),TPasDblStrUtilsUInt64($e8d4a51000000000),
+        TPasDblStrUtilsUInt64($9184e72a00000000),TPasDblStrUtilsUInt64($b5e620f480000000),
+        TPasDblStrUtilsUInt64($e35fa931a0000000),TPasDblStrUtilsUInt64($8e1bc9bf04000000),
+        TPasDblStrUtilsUInt64($b1a2bc2ec5000000),TPasDblStrUtilsUInt64($de0b6b3a76400000),
+        TPasDblStrUtilsUInt64($8ac7230489e80000),TPasDblStrUtilsUInt64($ad78ebc5ac620000),
+        TPasDblStrUtilsUInt64($d8d726b7177a8000),TPasDblStrUtilsUInt64($878678326eac9000),
+        TPasDblStrUtilsUInt64($a968163f0a57b400),TPasDblStrUtilsUInt64($d3c21bcecceda100),
+        TPasDblStrUtilsUInt64($84595161401484a0),TPasDblStrUtilsUInt64($a56fa5b99019a5c8),
+        TPasDblStrUtilsUInt64($cecb8f27f4200f3a),TPasDblStrUtilsUInt64($813f3978f8940984),
+        TPasDblStrUtilsUInt64($a18f07d736b90be5),TPasDblStrUtilsUInt64($c9f2c9cd04674ede),
+        TPasDblStrUtilsUInt64($fc6f7c4045812296),TPasDblStrUtilsUInt64($9dc5ada82b70b59d),
+        TPasDblStrUtilsUInt64($c5371912364ce305),TPasDblStrUtilsUInt64($f684df56c3e01bc6),
+        TPasDblStrUtilsUInt64($9a130b963a6c115c),TPasDblStrUtilsUInt64($c097ce7bc90715b3),
+        TPasDblStrUtilsUInt64($f0bdc21abb48db20),TPasDblStrUtilsUInt64($96769950b50d88f4),
+        TPasDblStrUtilsUInt64($bc143fa4e250eb31),TPasDblStrUtilsUInt64($eb194f8e1ae525fd),
+        TPasDblStrUtilsUInt64($92efd1b8d0cf37be),TPasDblStrUtilsUInt64($b7abc627050305ad),
+        TPasDblStrUtilsUInt64($e596b7b0c643c719),TPasDblStrUtilsUInt64($8f7e32ce7bea5c6f),
+        TPasDblStrUtilsUInt64($b35dbf821ae4f38b),TPasDblStrUtilsUInt64($e0352f62a19e306e),
+        TPasDblStrUtilsUInt64($8c213d9da502de45),TPasDblStrUtilsUInt64($af298d050e4395d6),
+        TPasDblStrUtilsUInt64($daf3f04651d47b4c),TPasDblStrUtilsUInt64($88d8762bf324cd0f),
+        TPasDblStrUtilsUInt64($ab0e93b6efee0053),TPasDblStrUtilsUInt64($d5d238a4abe98068),
+        TPasDblStrUtilsUInt64($85a36366eb71f041),TPasDblStrUtilsUInt64($a70c3c40a64e6c51),
+        TPasDblStrUtilsUInt64($d0cf4b50cfe20765),TPasDblStrUtilsUInt64($82818f1281ed449f),
+        TPasDblStrUtilsUInt64($a321f2d7226895c7),TPasDblStrUtilsUInt64($cbea6f8ceb02bb39),
+        TPasDblStrUtilsUInt64($fee50b7025c36a08),TPasDblStrUtilsUInt64($9f4f2726179a2245),
+        TPasDblStrUtilsUInt64($c722f0ef9d80aad6),TPasDblStrUtilsUInt64($f8ebad2b84e0d58b),
+        TPasDblStrUtilsUInt64($9b934c3b330c8577),TPasDblStrUtilsUInt64($c2781f49ffcfa6d5),
+        TPasDblStrUtilsUInt64($f316271c7fc3908a),TPasDblStrUtilsUInt64($97edd871cfda3a56),
+        TPasDblStrUtilsUInt64($bde94e8e43d0c8ec),TPasDblStrUtilsUInt64($ed63a231d4c4fb27),
+        TPasDblStrUtilsUInt64($945e455f24fb1cf8),TPasDblStrUtilsUInt64($b975d6b6ee39e436),
+        TPasDblStrUtilsUInt64($e7d34c64a9c85d44),TPasDblStrUtilsUInt64($90e40fbeea1d3a4a),
+        TPasDblStrUtilsUInt64($b51d13aea4a488dd),TPasDblStrUtilsUInt64($e264589a4dcdab14),
+        TPasDblStrUtilsUInt64($8d7eb76070a08aec),TPasDblStrUtilsUInt64($b0de65388cc8ada8),
+        TPasDblStrUtilsUInt64($dd15fe86affad912),TPasDblStrUtilsUInt64($8a2dbf142dfcc7ab),
+        TPasDblStrUtilsUInt64($acb92ed9397bf996),TPasDblStrUtilsUInt64($d7e77a8f87daf7fb),
+        TPasDblStrUtilsUInt64($86f0ac99b4e8dafd),TPasDblStrUtilsUInt64($a8acd7c0222311bc),
+        TPasDblStrUtilsUInt64($d2d80db02aabd62b),TPasDblStrUtilsUInt64($83c7088e1aab65db),
+        TPasDblStrUtilsUInt64($a4b8cab1a1563f52),TPasDblStrUtilsUInt64($cde6fd5e09abcf26),
+        TPasDblStrUtilsUInt64($80b05e5ac60b6178),TPasDblStrUtilsUInt64($a0dc75f1778e39d6),
+        TPasDblStrUtilsUInt64($c913936dd571c84c),TPasDblStrUtilsUInt64($fb5878494ace3a5f),
+        TPasDblStrUtilsUInt64($9d174b2dcec0e47b),TPasDblStrUtilsUInt64($c45d1df942711d9a),
+        TPasDblStrUtilsUInt64($f5746577930d6500),TPasDblStrUtilsUInt64($9968bf6abbe85f20),
+        TPasDblStrUtilsUInt64($bfc2ef456ae276e8),TPasDblStrUtilsUInt64($efb3ab16c59b14a2),
+        TPasDblStrUtilsUInt64($95d04aee3b80ece5),TPasDblStrUtilsUInt64($bb445da9ca61281f),
+        TPasDblStrUtilsUInt64($ea1575143cf97226),TPasDblStrUtilsUInt64($924d692ca61be758),
+        TPasDblStrUtilsUInt64($b6e0c377cfa2e12e),TPasDblStrUtilsUInt64($e498f455c38b997a),
+        TPasDblStrUtilsUInt64($8edf98b59a373fec),TPasDblStrUtilsUInt64($b2977ee300c50fe7),
+        TPasDblStrUtilsUInt64($df3d5e9bc0f653e1),TPasDblStrUtilsUInt64($8b865b215899f46c),
+        TPasDblStrUtilsUInt64($ae67f1e9aec07187),TPasDblStrUtilsUInt64($da01ee641a708de9),
+        TPasDblStrUtilsUInt64($884134fe908658b2),TPasDblStrUtilsUInt64($aa51823e34a7eede),
+        TPasDblStrUtilsUInt64($d4e5e2cdc1d1ea96),TPasDblStrUtilsUInt64($850fadc09923329e),
+        TPasDblStrUtilsUInt64($a6539930bf6bff45),TPasDblStrUtilsUInt64($cfe87f7cef46ff16),
+        TPasDblStrUtilsUInt64($81f14fae158c5f6e),TPasDblStrUtilsUInt64($a26da3999aef7749),
+        TPasDblStrUtilsUInt64($cb090c8001ab551c),TPasDblStrUtilsUInt64($fdcb4fa002162a63),
+        TPasDblStrUtilsUInt64($9e9f11c4014dda7e),TPasDblStrUtilsUInt64($c646d63501a1511d),
+        TPasDblStrUtilsUInt64($f7d88bc24209a565),TPasDblStrUtilsUInt64($9ae757596946075f),
+        TPasDblStrUtilsUInt64($c1a12d2fc3978937),TPasDblStrUtilsUInt64($f209787bb47d6b84),
+        TPasDblStrUtilsUInt64($9745eb4d50ce6332),TPasDblStrUtilsUInt64($bd176620a501fbff),
+        TPasDblStrUtilsUInt64($ec5d3fa8ce427aff),TPasDblStrUtilsUInt64($93ba47c980e98cdf),
+        TPasDblStrUtilsUInt64($b8a8d9bbe123f017),TPasDblStrUtilsUInt64($e6d3102ad96cec1d),
+        TPasDblStrUtilsUInt64($9043ea1ac7e41392),TPasDblStrUtilsUInt64($b454e4a179dd1877),
+        TPasDblStrUtilsUInt64($e16a1dc9d8545e94),TPasDblStrUtilsUInt64($8ce2529e2734bb1d),
+        TPasDblStrUtilsUInt64($b01ae745b101e9e4),TPasDblStrUtilsUInt64($dc21a1171d42645d),
+        TPasDblStrUtilsUInt64($899504ae72497eba),TPasDblStrUtilsUInt64($abfa45da0edbde69),
+        TPasDblStrUtilsUInt64($d6f8d7509292d603),TPasDblStrUtilsUInt64($865b86925b9bc5c2),
+        TPasDblStrUtilsUInt64($a7f26836f282b732),TPasDblStrUtilsUInt64($d1ef0244af2364ff),
+        TPasDblStrUtilsUInt64($8335616aed761f1f),TPasDblStrUtilsUInt64($a402b9c5a8d3a6e7),
+        TPasDblStrUtilsUInt64($cd036837130890a1),TPasDblStrUtilsUInt64($802221226be55a64),
+        TPasDblStrUtilsUInt64($a02aa96b06deb0fd),TPasDblStrUtilsUInt64($c83553c5c8965d3d),
+        TPasDblStrUtilsUInt64($fa42a8b73abbf48c),TPasDblStrUtilsUInt64($9c69a97284b578d7),
+        TPasDblStrUtilsUInt64($c38413cf25e2d70d),TPasDblStrUtilsUInt64($f46518c2ef5b8cd1),
+        TPasDblStrUtilsUInt64($98bf2f79d5993802),TPasDblStrUtilsUInt64($beeefb584aff8603),
+        TPasDblStrUtilsUInt64($eeaaba2e5dbf6784),TPasDblStrUtilsUInt64($952ab45cfa97a0b2),
+        TPasDblStrUtilsUInt64($ba756174393d88df),TPasDblStrUtilsUInt64($e912b9d1478ceb17),
+        TPasDblStrUtilsUInt64($91abb422ccb812ee),TPasDblStrUtilsUInt64($b616a12b7fe617aa),
+        TPasDblStrUtilsUInt64($e39c49765fdf9d94),TPasDblStrUtilsUInt64($8e41ade9fbebc27d),
+        TPasDblStrUtilsUInt64($b1d219647ae6b31c),TPasDblStrUtilsUInt64($de469fbd99a05fe3),
+        TPasDblStrUtilsUInt64($8aec23d680043bee),TPasDblStrUtilsUInt64($ada72ccc20054ae9),
+        TPasDblStrUtilsUInt64($d910f7ff28069da4),TPasDblStrUtilsUInt64($87aa9aff79042286),
+        TPasDblStrUtilsUInt64($a99541bf57452b28),TPasDblStrUtilsUInt64($d3fa922f2d1675f2),
+        TPasDblStrUtilsUInt64($847c9b5d7c2e09b7),TPasDblStrUtilsUInt64($a59bc234db398c25),
+        TPasDblStrUtilsUInt64($cf02b2c21207ef2e),TPasDblStrUtilsUInt64($8161afb94b44f57d),
+        TPasDblStrUtilsUInt64($a1ba1ba79e1632dc),TPasDblStrUtilsUInt64($ca28a291859bbf93),
+        TPasDblStrUtilsUInt64($fcb2cb35e702af78),TPasDblStrUtilsUInt64($9defbf01b061adab),
+        TPasDblStrUtilsUInt64($c56baec21c7a1916),TPasDblStrUtilsUInt64($f6c69a72a3989f5b),
+        TPasDblStrUtilsUInt64($9a3c2087a63f6399),TPasDblStrUtilsUInt64($c0cb28a98fcf3c7f),
+        TPasDblStrUtilsUInt64($f0fdf2d3f3c30b9f),TPasDblStrUtilsUInt64($969eb7c47859e743),
+        TPasDblStrUtilsUInt64($bc4665b596706114),TPasDblStrUtilsUInt64($eb57ff22fc0c7959),
+        TPasDblStrUtilsUInt64($9316ff75dd87cbd8),TPasDblStrUtilsUInt64($b7dcbf5354e9bece),
+        TPasDblStrUtilsUInt64($e5d3ef282a242e81),TPasDblStrUtilsUInt64($8fa475791a569d10),
+        TPasDblStrUtilsUInt64($b38d92d760ec4455),TPasDblStrUtilsUInt64($e070f78d3927556a),
+        TPasDblStrUtilsUInt64($8c469ab843b89562),TPasDblStrUtilsUInt64($af58416654a6babb),
+        TPasDblStrUtilsUInt64($db2e51bfe9d0696a),TPasDblStrUtilsUInt64($88fcf317f22241e2),
+        TPasDblStrUtilsUInt64($ab3c2fddeeaad25a),TPasDblStrUtilsUInt64($d60b3bd56a5586f1),
+        TPasDblStrUtilsUInt64($85c7056562757456),TPasDblStrUtilsUInt64($a738c6bebb12d16c),
+        TPasDblStrUtilsUInt64($d106f86e69d785c7),TPasDblStrUtilsUInt64($82a45b450226b39c),
+        TPasDblStrUtilsUInt64($a34d721642b06084),TPasDblStrUtilsUInt64($cc20ce9bd35c78a5),
+        TPasDblStrUtilsUInt64($ff290242c83396ce),TPasDblStrUtilsUInt64($9f79a169bd203e41),
+        TPasDblStrUtilsUInt64($c75809c42c684dd1),TPasDblStrUtilsUInt64($f92e0c3537826145),
+        TPasDblStrUtilsUInt64($9bbcc7a142b17ccb),TPasDblStrUtilsUInt64($c2abf989935ddbfe),
+        TPasDblStrUtilsUInt64($f356f7ebf83552fe),TPasDblStrUtilsUInt64($98165af37b2153de),
+        TPasDblStrUtilsUInt64($be1bf1b059e9a8d6),TPasDblStrUtilsUInt64($eda2ee1c7064130c),
+        TPasDblStrUtilsUInt64($9485d4d1c63e8be7),TPasDblStrUtilsUInt64($b9a74a0637ce2ee1),
+        TPasDblStrUtilsUInt64($e8111c87c5c1ba99),TPasDblStrUtilsUInt64($910ab1d4db9914a0),
+        TPasDblStrUtilsUInt64($b54d5e4a127f59c8),TPasDblStrUtilsUInt64($e2a0b5dc971f303a),
+        TPasDblStrUtilsUInt64($8da471a9de737e24),TPasDblStrUtilsUInt64($b10d8e1456105dad),
+        TPasDblStrUtilsUInt64($dd50f1996b947518),TPasDblStrUtilsUInt64($8a5296ffe33cc92f),
+        TPasDblStrUtilsUInt64($ace73cbfdc0bfb7b),TPasDblStrUtilsUInt64($d8210befd30efa5a),
+        TPasDblStrUtilsUInt64($8714a775e3e95c78),TPasDblStrUtilsUInt64($a8d9d1535ce3b396),
+        TPasDblStrUtilsUInt64($d31045a8341ca07c),TPasDblStrUtilsUInt64($83ea2b892091e44d),
+        TPasDblStrUtilsUInt64($a4e4b66b68b65d60),TPasDblStrUtilsUInt64($ce1de40642e3f4b9),
+        TPasDblStrUtilsUInt64($80d2ae83e9ce78f3),TPasDblStrUtilsUInt64($a1075a24e4421730),
+        TPasDblStrUtilsUInt64($c94930ae1d529cfc),TPasDblStrUtilsUInt64($fb9b7cd9a4a7443c),
+        TPasDblStrUtilsUInt64($9d412e0806e88aa5),TPasDblStrUtilsUInt64($c491798a08a2ad4e),
+        TPasDblStrUtilsUInt64($f5b5d7ec8acb58a2),TPasDblStrUtilsUInt64($9991a6f3d6bf1765),
+        TPasDblStrUtilsUInt64($bff610b0cc6edd3f),TPasDblStrUtilsUInt64($eff394dcff8a948e),
+        TPasDblStrUtilsUInt64($95f83d0a1fb69cd9),TPasDblStrUtilsUInt64($bb764c4ca7a4440f),
+        TPasDblStrUtilsUInt64($ea53df5fd18d5513),TPasDblStrUtilsUInt64($92746b9be2f8552c),
+        TPasDblStrUtilsUInt64($b7118682dbb66a77),TPasDblStrUtilsUInt64($e4d5e82392a40515),
+        TPasDblStrUtilsUInt64($8f05b1163ba6832d),TPasDblStrUtilsUInt64($b2c71d5bca9023f8),
+        TPasDblStrUtilsUInt64($df78e4b2bd342cf6),TPasDblStrUtilsUInt64($8bab8eefb6409c1a),
+        TPasDblStrUtilsUInt64($ae9672aba3d0c320),TPasDblStrUtilsUInt64($da3c0f568cc4f3e8),
+        TPasDblStrUtilsUInt64($8865899617fb1871),TPasDblStrUtilsUInt64($aa7eebfb9df9de8d),
+        TPasDblStrUtilsUInt64($d51ea6fa85785631),TPasDblStrUtilsUInt64($8533285c936b35de),
+        TPasDblStrUtilsUInt64($a67ff273b8460356),TPasDblStrUtilsUInt64($d01fef10a657842c),
+        TPasDblStrUtilsUInt64($8213f56a67f6b29b),TPasDblStrUtilsUInt64($a298f2c501f45f42),
+        TPasDblStrUtilsUInt64($cb3f2f7642717713),TPasDblStrUtilsUInt64($fe0efb53d30dd4d7),
+        TPasDblStrUtilsUInt64($9ec95d1463e8a506),TPasDblStrUtilsUInt64($c67bb4597ce2ce48),
+        TPasDblStrUtilsUInt64($f81aa16fdc1b81da),TPasDblStrUtilsUInt64($9b10a4e5e9913128),
+        TPasDblStrUtilsUInt64($c1d4ce1f63f57d72),TPasDblStrUtilsUInt64($f24a01a73cf2dccf),
+        TPasDblStrUtilsUInt64($976e41088617ca01),TPasDblStrUtilsUInt64($bd49d14aa79dbc82),
+        TPasDblStrUtilsUInt64($ec9c459d51852ba2),TPasDblStrUtilsUInt64($93e1ab8252f33b45),
+        TPasDblStrUtilsUInt64($b8da1662e7b00a17),TPasDblStrUtilsUInt64($e7109bfba19c0c9d),
+        TPasDblStrUtilsUInt64($906a617d450187e2),TPasDblStrUtilsUInt64($b484f9dc9641e9da),
+        TPasDblStrUtilsUInt64($e1a63853bbd26451),TPasDblStrUtilsUInt64($8d07e33455637eb2),
+        TPasDblStrUtilsUInt64($b049dc016abc5e5f),TPasDblStrUtilsUInt64($dc5c5301c56b75f7),
+        TPasDblStrUtilsUInt64($89b9b3e11b6329ba),TPasDblStrUtilsUInt64($ac2820d9623bf429),
+        TPasDblStrUtilsUInt64($d732290fbacaf133),TPasDblStrUtilsUInt64($867f59a9d4bed6c0),
+        TPasDblStrUtilsUInt64($a81f301449ee8c70),TPasDblStrUtilsUInt64($d226fc195c6a2f8c),
+        TPasDblStrUtilsUInt64($83585d8fd9c25db7),TPasDblStrUtilsUInt64($a42e74f3d032f525),
+        TPasDblStrUtilsUInt64($cd3a1230c43fb26f),TPasDblStrUtilsUInt64($80444b5e7aa7cf85),
+        TPasDblStrUtilsUInt64($a0555e361951c366),TPasDblStrUtilsUInt64($c86ab5c39fa63440),
+        TPasDblStrUtilsUInt64($fa856334878fc150),TPasDblStrUtilsUInt64($9c935e00d4b9d8d2),
+        TPasDblStrUtilsUInt64($c3b8358109e84f07),TPasDblStrUtilsUInt64($f4a642e14c6262c8),
+        TPasDblStrUtilsUInt64($98e7e9cccfbd7dbd),TPasDblStrUtilsUInt64($bf21e44003acdd2c),
+        TPasDblStrUtilsUInt64($eeea5d5004981478),TPasDblStrUtilsUInt64($95527a5202df0ccb),
+        TPasDblStrUtilsUInt64($baa718e68396cffd),TPasDblStrUtilsUInt64($e950df20247c83fd),
+        TPasDblStrUtilsUInt64($91d28b7416cdd27e),TPasDblStrUtilsUInt64($b6472e511c81471d),
+        TPasDblStrUtilsUInt64($e3d8f9e563a198e5),TPasDblStrUtilsUInt64($8e679c2f5e44ff8f)
+       );
+      Mantissa128:array[FASTFLOAT_SMALLEST_POWER..FASTFLOAT_LARGEST_POWER] of TPasDblStrUtilsUInt64=
+       (
+        TPasDblStrUtilsUInt64($419ea3bd35385e2d),TPasDblStrUtilsUInt64($52064cac828675b9),
+        TPasDblStrUtilsUInt64($7343efebd1940993),TPasDblStrUtilsUInt64($1014ebe6c5f90bf8),
+        TPasDblStrUtilsUInt64($d41a26e077774ef6),TPasDblStrUtilsUInt64($8920b098955522b4),
+        TPasDblStrUtilsUInt64($55b46e5f5d5535b0),TPasDblStrUtilsUInt64($eb2189f734aa831d),
+        TPasDblStrUtilsUInt64($a5e9ec7501d523e4),TPasDblStrUtilsUInt64($47b233c92125366e),
+        TPasDblStrUtilsUInt64($999ec0bb696e840a),TPasDblStrUtilsUInt64($c00670ea43ca250d),
+        TPasDblStrUtilsUInt64($380406926a5e5728),TPasDblStrUtilsUInt64($c605083704f5ecf2),
+        TPasDblStrUtilsUInt64($f7864a44c633682e),TPasDblStrUtilsUInt64($7ab3ee6afbe0211d),
+        TPasDblStrUtilsUInt64($5960ea05bad82964),TPasDblStrUtilsUInt64($6fb92487298e33bd),
+        TPasDblStrUtilsUInt64($a5d3b6d479f8e056),TPasDblStrUtilsUInt64($8f48a4899877186c),
+        TPasDblStrUtilsUInt64($331acdabfe94de87),TPasDblStrUtilsUInt64($9ff0c08b7f1d0b14),
+        TPasDblStrUtilsUInt64($7ecf0ae5ee44dd9),TPasDblStrUtilsUInt64($c9e82cd9f69d6150),
+        TPasDblStrUtilsUInt64($be311c083a225cd2),TPasDblStrUtilsUInt64($6dbd630a48aaf406),
+        TPasDblStrUtilsUInt64($92cbbccdad5b108),TPasDblStrUtilsUInt64($25bbf56008c58ea5),
+        TPasDblStrUtilsUInt64($af2af2b80af6f24e),TPasDblStrUtilsUInt64($1af5af660db4aee1),
+        TPasDblStrUtilsUInt64($50d98d9fc890ed4d),TPasDblStrUtilsUInt64($e50ff107bab528a0),
+        TPasDblStrUtilsUInt64($1e53ed49a96272c8),TPasDblStrUtilsUInt64($25e8e89c13bb0f7a),
+        TPasDblStrUtilsUInt64($77b191618c54e9ac),TPasDblStrUtilsUInt64($d59df5b9ef6a2417),
+        TPasDblStrUtilsUInt64($4b0573286b44ad1d),TPasDblStrUtilsUInt64($4ee367f9430aec32),
+        TPasDblStrUtilsUInt64($229c41f793cda73f),TPasDblStrUtilsUInt64($6b43527578c1110f),
+        TPasDblStrUtilsUInt64($830a13896b78aaa9),TPasDblStrUtilsUInt64($23cc986bc656d553),
+        TPasDblStrUtilsUInt64($2cbfbe86b7ec8aa8),TPasDblStrUtilsUInt64($7bf7d71432f3d6a9),
+        TPasDblStrUtilsUInt64($daf5ccd93fb0cc53),TPasDblStrUtilsUInt64($d1b3400f8f9cff68),
+        TPasDblStrUtilsUInt64($23100809b9c21fa1),TPasDblStrUtilsUInt64($abd40a0c2832a78a),
+        TPasDblStrUtilsUInt64($16c90c8f323f516c),TPasDblStrUtilsUInt64($ae3da7d97f6792e3),
+        TPasDblStrUtilsUInt64($99cd11cfdf41779c),TPasDblStrUtilsUInt64($40405643d711d583),
+        TPasDblStrUtilsUInt64($482835ea666b2572),TPasDblStrUtilsUInt64($da3243650005eecf),
+        TPasDblStrUtilsUInt64($90bed43e40076a82),TPasDblStrUtilsUInt64($5a7744a6e804a291),
+        TPasDblStrUtilsUInt64($711515d0a205cb36),TPasDblStrUtilsUInt64($d5a5b44ca873e03),
+        TPasDblStrUtilsUInt64($e858790afe9486c2),TPasDblStrUtilsUInt64($626e974dbe39a872),
+        TPasDblStrUtilsUInt64($fb0a3d212dc8128f),TPasDblStrUtilsUInt64($7ce66634bc9d0b99),
+        TPasDblStrUtilsUInt64($1c1fffc1ebc44e80),TPasDblStrUtilsUInt64($a327ffb266b56220),
+        TPasDblStrUtilsUInt64($4bf1ff9f0062baa8),TPasDblStrUtilsUInt64($6f773fc3603db4a9),
+        TPasDblStrUtilsUInt64($cb550fb4384d21d3),TPasDblStrUtilsUInt64($7e2a53a146606a48),
+        TPasDblStrUtilsUInt64($2eda7444cbfc426d),TPasDblStrUtilsUInt64($fa911155fefb5308),
+        TPasDblStrUtilsUInt64($793555ab7eba27ca),TPasDblStrUtilsUInt64($4bc1558b2f3458de),
+        TPasDblStrUtilsUInt64($9eb1aaedfb016f16),TPasDblStrUtilsUInt64($465e15a979c1cadc),
+        TPasDblStrUtilsUInt64($bfacd89ec191ec9),TPasDblStrUtilsUInt64($cef980ec671f667b),
+        TPasDblStrUtilsUInt64($82b7e12780e7401a),TPasDblStrUtilsUInt64($d1b2ecb8b0908810),
+        TPasDblStrUtilsUInt64($861fa7e6dcb4aa15),TPasDblStrUtilsUInt64($67a791e093e1d49a),
+        TPasDblStrUtilsUInt64($e0c8bb2c5c6d24e0),TPasDblStrUtilsUInt64($58fae9f773886e18),
+        TPasDblStrUtilsUInt64($af39a475506a899e),TPasDblStrUtilsUInt64($6d8406c952429603),
+        TPasDblStrUtilsUInt64($c8e5087ba6d33b83),TPasDblStrUtilsUInt64($fb1e4a9a90880a64),
+        TPasDblStrUtilsUInt64($5cf2eea09a55067f),TPasDblStrUtilsUInt64($f42faa48c0ea481e),
+        TPasDblStrUtilsUInt64($f13b94daf124da26),TPasDblStrUtilsUInt64($76c53d08d6b70858),
+        TPasDblStrUtilsUInt64($54768c4b0c64ca6e),TPasDblStrUtilsUInt64($a9942f5dcf7dfd09),
+        TPasDblStrUtilsUInt64($d3f93b35435d7c4c),TPasDblStrUtilsUInt64($c47bc5014a1a6daf),
+        TPasDblStrUtilsUInt64($359ab6419ca1091b),TPasDblStrUtilsUInt64($c30163d203c94b62),
+        TPasDblStrUtilsUInt64($79e0de63425dcf1d),TPasDblStrUtilsUInt64($985915fc12f542e4),
+        TPasDblStrUtilsUInt64($3e6f5b7b17b2939d),TPasDblStrUtilsUInt64($a705992ceecf9c42),
+        TPasDblStrUtilsUInt64($50c6ff782a838353),TPasDblStrUtilsUInt64($a4f8bf5635246428),
+        TPasDblStrUtilsUInt64($871b7795e136be99),TPasDblStrUtilsUInt64($28e2557b59846e3f),
+        TPasDblStrUtilsUInt64($331aeada2fe589cf),TPasDblStrUtilsUInt64($3ff0d2c85def7621),
+        TPasDblStrUtilsUInt64($fed077a756b53a9),TPasDblStrUtilsUInt64($d3e8495912c62894),
+        TPasDblStrUtilsUInt64($64712dd7abbbd95c),TPasDblStrUtilsUInt64($bd8d794d96aacfb3),
+        TPasDblStrUtilsUInt64($ecf0d7a0fc5583a0),TPasDblStrUtilsUInt64($f41686c49db57244),
+        TPasDblStrUtilsUInt64($311c2875c522ced5),TPasDblStrUtilsUInt64($7d633293366b828b),
+        TPasDblStrUtilsUInt64($ae5dff9c02033197),TPasDblStrUtilsUInt64($d9f57f830283fdfc),
+        TPasDblStrUtilsUInt64($d072df63c324fd7b),TPasDblStrUtilsUInt64($4247cb9e59f71e6d),
+        TPasDblStrUtilsUInt64($52d9be85f074e608),TPasDblStrUtilsUInt64($67902e276c921f8b),
+        TPasDblStrUtilsUInt64($ba1cd8a3db53b6),TPasDblStrUtilsUInt64($80e8a40eccd228a4),
+        TPasDblStrUtilsUInt64($6122cd128006b2cd),TPasDblStrUtilsUInt64($796b805720085f81),
+        TPasDblStrUtilsUInt64($cbe3303674053bb0),TPasDblStrUtilsUInt64($bedbfc4411068a9c),
+        TPasDblStrUtilsUInt64($ee92fb5515482d44),TPasDblStrUtilsUInt64($751bdd152d4d1c4a),
+        TPasDblStrUtilsUInt64($d262d45a78a0635d),TPasDblStrUtilsUInt64($86fb897116c87c34),
+        TPasDblStrUtilsUInt64($d45d35e6ae3d4da0),TPasDblStrUtilsUInt64($8974836059cca109),
+        TPasDblStrUtilsUInt64($2bd1a438703fc94b),TPasDblStrUtilsUInt64($7b6306a34627ddcf),
+        TPasDblStrUtilsUInt64($1a3bc84c17b1d542),TPasDblStrUtilsUInt64($20caba5f1d9e4a93),
+        TPasDblStrUtilsUInt64($547eb47b7282ee9c),TPasDblStrUtilsUInt64($e99e619a4f23aa43),
+        TPasDblStrUtilsUInt64($6405fa00e2ec94d4),TPasDblStrUtilsUInt64($de83bc408dd3dd04),
+        TPasDblStrUtilsUInt64($9624ab50b148d445),TPasDblStrUtilsUInt64($3badd624dd9b0957),
+        TPasDblStrUtilsUInt64($e54ca5d70a80e5d6),TPasDblStrUtilsUInt64($5e9fcf4ccd211f4c),
+        TPasDblStrUtilsUInt64($7647c3200069671f),TPasDblStrUtilsUInt64($29ecd9f40041e073),
+        TPasDblStrUtilsUInt64($f468107100525890),TPasDblStrUtilsUInt64($7182148d4066eeb4),
+        TPasDblStrUtilsUInt64($c6f14cd848405530),TPasDblStrUtilsUInt64($b8ada00e5a506a7c),
+        TPasDblStrUtilsUInt64($a6d90811f0e4851c),TPasDblStrUtilsUInt64($908f4a166d1da663),
+        TPasDblStrUtilsUInt64($9a598e4e043287fe),TPasDblStrUtilsUInt64($40eff1e1853f29fd),
+        TPasDblStrUtilsUInt64($d12bee59e68ef47c),TPasDblStrUtilsUInt64($82bb74f8301958ce),
+        TPasDblStrUtilsUInt64($e36a52363c1faf01),TPasDblStrUtilsUInt64($dc44e6c3cb279ac1),
+        TPasDblStrUtilsUInt64($29ab103a5ef8c0b9),TPasDblStrUtilsUInt64($7415d448f6b6f0e7),
+        TPasDblStrUtilsUInt64($111b495b3464ad21),TPasDblStrUtilsUInt64($cab10dd900beec34),
+        TPasDblStrUtilsUInt64($3d5d514f40eea742),TPasDblStrUtilsUInt64($cb4a5a3112a5112),
+        TPasDblStrUtilsUInt64($47f0e785eaba72ab),TPasDblStrUtilsUInt64($59ed216765690f56),
+        TPasDblStrUtilsUInt64($306869c13ec3532c),TPasDblStrUtilsUInt64($1e414218c73a13fb),
+        TPasDblStrUtilsUInt64($e5d1929ef90898fa),TPasDblStrUtilsUInt64($df45f746b74abf39),
+        TPasDblStrUtilsUInt64($6b8bba8c328eb783),TPasDblStrUtilsUInt64($66ea92f3f326564),
+        TPasDblStrUtilsUInt64($c80a537b0efefebd),TPasDblStrUtilsUInt64($bd06742ce95f5f36),
+        TPasDblStrUtilsUInt64($2c48113823b73704),TPasDblStrUtilsUInt64($f75a15862ca504c5),
+        TPasDblStrUtilsUInt64($9a984d73dbe722fb),TPasDblStrUtilsUInt64($c13e60d0d2e0ebba),
+        TPasDblStrUtilsUInt64($318df905079926a8),TPasDblStrUtilsUInt64($fdf17746497f7052),
+        TPasDblStrUtilsUInt64($feb6ea8bedefa633),TPasDblStrUtilsUInt64($fe64a52ee96b8fc0),
+        TPasDblStrUtilsUInt64($3dfdce7aa3c673b0),TPasDblStrUtilsUInt64($6bea10ca65c084e),
+        TPasDblStrUtilsUInt64($486e494fcff30a62),TPasDblStrUtilsUInt64($5a89dba3c3efccfa),
+        TPasDblStrUtilsUInt64($f89629465a75e01c),TPasDblStrUtilsUInt64($f6bbb397f1135823),
+        TPasDblStrUtilsUInt64($746aa07ded582e2c),TPasDblStrUtilsUInt64($a8c2a44eb4571cdc),
+        TPasDblStrUtilsUInt64($92f34d62616ce413),TPasDblStrUtilsUInt64($77b020baf9c81d17),
+        TPasDblStrUtilsUInt64($ace1474dc1d122e),TPasDblStrUtilsUInt64($d819992132456ba),
+        TPasDblStrUtilsUInt64($10e1fff697ed6c69),TPasDblStrUtilsUInt64($ca8d3ffa1ef463c1),
+        TPasDblStrUtilsUInt64($bd308ff8a6b17cb2),TPasDblStrUtilsUInt64($ac7cb3f6d05ddbde),
+        TPasDblStrUtilsUInt64($6bcdf07a423aa96b),TPasDblStrUtilsUInt64($86c16c98d2c953c6),
+        TPasDblStrUtilsUInt64($e871c7bf077ba8b7),TPasDblStrUtilsUInt64($11471cd764ad4972),
+        TPasDblStrUtilsUInt64($d598e40d3dd89bcf),TPasDblStrUtilsUInt64($4aff1d108d4ec2c3),
+        TPasDblStrUtilsUInt64($cedf722a585139ba),TPasDblStrUtilsUInt64($c2974eb4ee658828),
+        TPasDblStrUtilsUInt64($733d226229feea32),TPasDblStrUtilsUInt64($806357d5a3f525f),
+        TPasDblStrUtilsUInt64($ca07c2dcb0cf26f7),TPasDblStrUtilsUInt64($fc89b393dd02f0b5),
+        TPasDblStrUtilsUInt64($bbac2078d443ace2),TPasDblStrUtilsUInt64($d54b944b84aa4c0d),
+        TPasDblStrUtilsUInt64($a9e795e65d4df11),TPasDblStrUtilsUInt64($4d4617b5ff4a16d5),
+        TPasDblStrUtilsUInt64($504bced1bf8e4e45),TPasDblStrUtilsUInt64($e45ec2862f71e1d6),
+        TPasDblStrUtilsUInt64($5d767327bb4e5a4c),TPasDblStrUtilsUInt64($3a6a07f8d510f86f),
+        TPasDblStrUtilsUInt64($890489f70a55368b),TPasDblStrUtilsUInt64($2b45ac74ccea842e),
+        TPasDblStrUtilsUInt64($3b0b8bc90012929d),TPasDblStrUtilsUInt64($9ce6ebb40173744),
+        TPasDblStrUtilsUInt64($cc420a6a101d0515),TPasDblStrUtilsUInt64($9fa946824a12232d),
+        TPasDblStrUtilsUInt64($47939822dc96abf9),TPasDblStrUtilsUInt64($59787e2b93bc56f7),
+        TPasDblStrUtilsUInt64($57eb4edb3c55b65a),TPasDblStrUtilsUInt64($ede622920b6b23f1),
+        TPasDblStrUtilsUInt64($e95fab368e45eced),TPasDblStrUtilsUInt64($11dbcb0218ebb414),
+        TPasDblStrUtilsUInt64($d652bdc29f26a119),TPasDblStrUtilsUInt64($4be76d3346f0495f),
+        TPasDblStrUtilsUInt64($6f70a4400c562ddb),TPasDblStrUtilsUInt64($cb4ccd500f6bb952),
+        TPasDblStrUtilsUInt64($7e2000a41346a7a7),TPasDblStrUtilsUInt64($8ed400668c0c28c8),
+        TPasDblStrUtilsUInt64($728900802f0f32fa),TPasDblStrUtilsUInt64($4f2b40a03ad2ffb9),
+        TPasDblStrUtilsUInt64($e2f610c84987bfa8),TPasDblStrUtilsUInt64($dd9ca7d2df4d7c9),
+        TPasDblStrUtilsUInt64($91503d1c79720dbb),TPasDblStrUtilsUInt64($75a44c6397ce912a),
+        TPasDblStrUtilsUInt64($c986afbe3ee11aba),TPasDblStrUtilsUInt64($fbe85badce996168),
+        TPasDblStrUtilsUInt64($fae27299423fb9c3),TPasDblStrUtilsUInt64($dccd879fc967d41a),
+        TPasDblStrUtilsUInt64($5400e987bbc1c920),TPasDblStrUtilsUInt64($290123e9aab23b68),
+        TPasDblStrUtilsUInt64($f9a0b6720aaf6521),TPasDblStrUtilsUInt64($f808e40e8d5b3e69),
+        TPasDblStrUtilsUInt64($b60b1d1230b20e04),TPasDblStrUtilsUInt64($b1c6f22b5e6f48c2),
+        TPasDblStrUtilsUInt64($1e38aeb6360b1af3),TPasDblStrUtilsUInt64($25c6da63c38de1b0),
+        TPasDblStrUtilsUInt64($579c487e5a38ad0e),TPasDblStrUtilsUInt64($2d835a9df0c6d851),
+        TPasDblStrUtilsUInt64($f8e431456cf88e65),TPasDblStrUtilsUInt64($1b8e9ecb641b58ff),
+        TPasDblStrUtilsUInt64($e272467e3d222f3f),TPasDblStrUtilsUInt64($5b0ed81dcc6abb0f),
+        TPasDblStrUtilsUInt64($98e947129fc2b4e9),TPasDblStrUtilsUInt64($3f2398d747b36224),
+        TPasDblStrUtilsUInt64($8eec7f0d19a03aad),TPasDblStrUtilsUInt64($1953cf68300424ac),
+        TPasDblStrUtilsUInt64($5fa8c3423c052dd7),TPasDblStrUtilsUInt64($3792f412cb06794d),
+        TPasDblStrUtilsUInt64($e2bbd88bbee40bd0),TPasDblStrUtilsUInt64($5b6aceaeae9d0ec4),
+        TPasDblStrUtilsUInt64($f245825a5a445275),TPasDblStrUtilsUInt64($eed6e2f0f0d56712),
+        TPasDblStrUtilsUInt64($55464dd69685606b),TPasDblStrUtilsUInt64($aa97e14c3c26b886),
+        TPasDblStrUtilsUInt64($d53dd99f4b3066a8),TPasDblStrUtilsUInt64($e546a8038efe4029),
+        TPasDblStrUtilsUInt64($de98520472bdd033),TPasDblStrUtilsUInt64($963e66858f6d4440),
+        TPasDblStrUtilsUInt64($dde7001379a44aa8),TPasDblStrUtilsUInt64($5560c018580d5d52),
+        TPasDblStrUtilsUInt64($aab8f01e6e10b4a6),TPasDblStrUtilsUInt64($cab3961304ca70e8),
+        TPasDblStrUtilsUInt64($3d607b97c5fd0d22),TPasDblStrUtilsUInt64($8cb89a7db77c506a),
+        TPasDblStrUtilsUInt64($77f3608e92adb242),TPasDblStrUtilsUInt64($55f038b237591ed3),
+        TPasDblStrUtilsUInt64($6b6c46dec52f6688),TPasDblStrUtilsUInt64($2323ac4b3b3da015),
+        TPasDblStrUtilsUInt64($abec975e0a0d081a),TPasDblStrUtilsUInt64($96e7bd358c904a21),
+        TPasDblStrUtilsUInt64($7e50d64177da2e54),TPasDblStrUtilsUInt64($dde50bd1d5d0b9e9),
+        TPasDblStrUtilsUInt64($955e4ec64b44e864),TPasDblStrUtilsUInt64($bd5af13bef0b113e),
+        TPasDblStrUtilsUInt64($ecb1ad8aeacdd58e),TPasDblStrUtilsUInt64($67de18eda5814af2),
+        TPasDblStrUtilsUInt64($80eacf948770ced7),TPasDblStrUtilsUInt64($a1258379a94d028d),
+        TPasDblStrUtilsUInt64($96ee45813a04330),TPasDblStrUtilsUInt64($8bca9d6e188853fc),
+        TPasDblStrUtilsUInt64($775ea264cf55347d),TPasDblStrUtilsUInt64($95364afe032a819d),
+        TPasDblStrUtilsUInt64($3a83ddbd83f52204),TPasDblStrUtilsUInt64($c4926a9672793542),
+        TPasDblStrUtilsUInt64($75b7053c0f178293),TPasDblStrUtilsUInt64($5324c68b12dd6338),
+        TPasDblStrUtilsUInt64($d3f6fc16ebca5e03),TPasDblStrUtilsUInt64($88f4bb1ca6bcf584),
+        TPasDblStrUtilsUInt64($2b31e9e3d06c32e5),TPasDblStrUtilsUInt64($3aff322e62439fcf),
+        TPasDblStrUtilsUInt64($9befeb9fad487c2),TPasDblStrUtilsUInt64($4c2ebe687989a9b3),
+        TPasDblStrUtilsUInt64($f9d37014bf60a10),TPasDblStrUtilsUInt64($538484c19ef38c94),
+        TPasDblStrUtilsUInt64($2865a5f206b06fb9),TPasDblStrUtilsUInt64($f93f87b7442e45d3),
+        TPasDblStrUtilsUInt64($f78f69a51539d748),TPasDblStrUtilsUInt64($b573440e5a884d1b),
+        TPasDblStrUtilsUInt64($31680a88f8953030),TPasDblStrUtilsUInt64($fdc20d2b36ba7c3d),
+        TPasDblStrUtilsUInt64($3d32907604691b4c),TPasDblStrUtilsUInt64($a63f9a49c2c1b10f),
+        TPasDblStrUtilsUInt64($fcf80dc33721d53),TPasDblStrUtilsUInt64($d3c36113404ea4a8),
+        TPasDblStrUtilsUInt64($645a1cac083126e9),TPasDblStrUtilsUInt64($3d70a3d70a3d70a3),
+        TPasDblStrUtilsUInt64($cccccccccccccccc),TPasDblStrUtilsUInt64($0),
+        TPasDblStrUtilsUInt64($0),TPasDblStrUtilsUInt64($0),
+        TPasDblStrUtilsUInt64($0),TPasDblStrUtilsUInt64($0),
+        TPasDblStrUtilsUInt64($0),TPasDblStrUtilsUInt64($0),
+        TPasDblStrUtilsUInt64($0),TPasDblStrUtilsUInt64($0),
+        TPasDblStrUtilsUInt64($0),TPasDblStrUtilsUInt64($0),
+        TPasDblStrUtilsUInt64($0),TPasDblStrUtilsUInt64($0),
+        TPasDblStrUtilsUInt64($0),TPasDblStrUtilsUInt64($0),
+        TPasDblStrUtilsUInt64($0),TPasDblStrUtilsUInt64($0),
+        TPasDblStrUtilsUInt64($0),TPasDblStrUtilsUInt64($0),
+        TPasDblStrUtilsUInt64($0),TPasDblStrUtilsUInt64($0),
+        TPasDblStrUtilsUInt64($0),TPasDblStrUtilsUInt64($0),
+        TPasDblStrUtilsUInt64($0),TPasDblStrUtilsUInt64($0),
+        TPasDblStrUtilsUInt64($0),TPasDblStrUtilsUInt64($0),
+        TPasDblStrUtilsUInt64($0),TPasDblStrUtilsUInt64($4000000000000000),
+        TPasDblStrUtilsUInt64($5000000000000000),TPasDblStrUtilsUInt64($a400000000000000),
+        TPasDblStrUtilsUInt64($4d00000000000000),TPasDblStrUtilsUInt64($f020000000000000),
+        TPasDblStrUtilsUInt64($6c28000000000000),TPasDblStrUtilsUInt64($c732000000000000),
+        TPasDblStrUtilsUInt64($3c7f400000000000),TPasDblStrUtilsUInt64($4b9f100000000000),
+        TPasDblStrUtilsUInt64($1e86d40000000000),TPasDblStrUtilsUInt64($1314448000000000),
+        TPasDblStrUtilsUInt64($17d955a000000000),TPasDblStrUtilsUInt64($5dcfab0800000000),
+        TPasDblStrUtilsUInt64($5aa1cae500000000),TPasDblStrUtilsUInt64($f14a3d9e40000000),
+        TPasDblStrUtilsUInt64($6d9ccd05d0000000),TPasDblStrUtilsUInt64($e4820023a2000000),
+        TPasDblStrUtilsUInt64($dda2802c8a800000),TPasDblStrUtilsUInt64($d50b2037ad200000),
+        TPasDblStrUtilsUInt64($4526f422cc340000),TPasDblStrUtilsUInt64($9670b12b7f410000),
+        TPasDblStrUtilsUInt64($3c0cdd765f114000),TPasDblStrUtilsUInt64($a5880a69fb6ac800),
+        TPasDblStrUtilsUInt64($8eea0d047a457a00),TPasDblStrUtilsUInt64($72a4904598d6d880),
+        TPasDblStrUtilsUInt64($47a6da2b7f864750),TPasDblStrUtilsUInt64($999090b65f67d924),
+        TPasDblStrUtilsUInt64($fff4b4e3f741cf6d),TPasDblStrUtilsUInt64($bff8f10e7a8921a4),
+        TPasDblStrUtilsUInt64($aff72d52192b6a0d),TPasDblStrUtilsUInt64($9bf4f8a69f764490),
+        TPasDblStrUtilsUInt64($2f236d04753d5b4),TPasDblStrUtilsUInt64($1d762422c946590),
+        TPasDblStrUtilsUInt64($424d3ad2b7b97ef5),TPasDblStrUtilsUInt64($d2e0898765a7deb2),
+        TPasDblStrUtilsUInt64($63cc55f49f88eb2f),TPasDblStrUtilsUInt64($3cbf6b71c76b25fb),
+        TPasDblStrUtilsUInt64($8bef464e3945ef7a),TPasDblStrUtilsUInt64($97758bf0e3cbb5ac),
+        TPasDblStrUtilsUInt64($3d52eeed1cbea317),TPasDblStrUtilsUInt64($4ca7aaa863ee4bdd),
+        TPasDblStrUtilsUInt64($8fe8caa93e74ef6a),TPasDblStrUtilsUInt64($b3e2fd538e122b44),
+        TPasDblStrUtilsUInt64($60dbbca87196b616),TPasDblStrUtilsUInt64($bc8955e946fe31cd),
+        TPasDblStrUtilsUInt64($6babab6398bdbe41),TPasDblStrUtilsUInt64($c696963c7eed2dd1),
+        TPasDblStrUtilsUInt64($fc1e1de5cf543ca2),TPasDblStrUtilsUInt64($3b25a55f43294bcb),
+        TPasDblStrUtilsUInt64($49ef0eb713f39ebe),TPasDblStrUtilsUInt64($6e3569326c784337),
+        TPasDblStrUtilsUInt64($49c2c37f07965404),TPasDblStrUtilsUInt64($dc33745ec97be906),
+        TPasDblStrUtilsUInt64($69a028bb3ded71a3),TPasDblStrUtilsUInt64($c40832ea0d68ce0c),
+        TPasDblStrUtilsUInt64($f50a3fa490c30190),TPasDblStrUtilsUInt64($792667c6da79e0fa),
+        TPasDblStrUtilsUInt64($577001b891185938),TPasDblStrUtilsUInt64($ed4c0226b55e6f86),
+        TPasDblStrUtilsUInt64($544f8158315b05b4),TPasDblStrUtilsUInt64($696361ae3db1c721),
+        TPasDblStrUtilsUInt64($3bc3a19cd1e38e9),TPasDblStrUtilsUInt64($4ab48a04065c723),
+        TPasDblStrUtilsUInt64($62eb0d64283f9c76),TPasDblStrUtilsUInt64($3ba5d0bd324f8394),
+        TPasDblStrUtilsUInt64($ca8f44ec7ee36479),TPasDblStrUtilsUInt64($7e998b13cf4e1ecb),
+        TPasDblStrUtilsUInt64($9e3fedd8c321a67e),TPasDblStrUtilsUInt64($c5cfe94ef3ea101e),
+        TPasDblStrUtilsUInt64($bba1f1d158724a12),TPasDblStrUtilsUInt64($2a8a6e45ae8edc97),
+        TPasDblStrUtilsUInt64($f52d09d71a3293bd),TPasDblStrUtilsUInt64($593c2626705f9c56),
+        TPasDblStrUtilsUInt64($6f8b2fb00c77836c),TPasDblStrUtilsUInt64($b6dfb9c0f956447),
+        TPasDblStrUtilsUInt64($4724bd4189bd5eac),TPasDblStrUtilsUInt64($58edec91ec2cb657),
+        TPasDblStrUtilsUInt64($2f2967b66737e3ed),TPasDblStrUtilsUInt64($bd79e0d20082ee74),
+        TPasDblStrUtilsUInt64($ecd8590680a3aa11),TPasDblStrUtilsUInt64($e80e6f4820cc9495),
+        TPasDblStrUtilsUInt64($3109058d147fdcdd),TPasDblStrUtilsUInt64($bd4b46f0599fd415),
+        TPasDblStrUtilsUInt64($6c9e18ac7007c91a),TPasDblStrUtilsUInt64($3e2cf6bc604ddb0),
+        TPasDblStrUtilsUInt64($84db8346b786151c),TPasDblStrUtilsUInt64($e612641865679a63),
+        TPasDblStrUtilsUInt64($4fcb7e8f3f60c07e),TPasDblStrUtilsUInt64($e3be5e330f38f09d),
+        TPasDblStrUtilsUInt64($5cadf5bfd3072cc5),TPasDblStrUtilsUInt64($73d9732fc7c8f7f6),
+        TPasDblStrUtilsUInt64($2867e7fddcdd9afa),TPasDblStrUtilsUInt64($b281e1fd541501b8),
+        TPasDblStrUtilsUInt64($1f225a7ca91a4226),TPasDblStrUtilsUInt64($3375788de9b06958),
+        TPasDblStrUtilsUInt64($52d6b1641c83ae),TPasDblStrUtilsUInt64($c0678c5dbd23a49a),
+        TPasDblStrUtilsUInt64($f840b7ba963646e0),TPasDblStrUtilsUInt64($b650e5a93bc3d898),
+        TPasDblStrUtilsUInt64($a3e51f138ab4cebe),TPasDblStrUtilsUInt64($c66f336c36b10137),
+        TPasDblStrUtilsUInt64($b80b0047445d4184),TPasDblStrUtilsUInt64($a60dc059157491e5),
+        TPasDblStrUtilsUInt64($87c89837ad68db2f),TPasDblStrUtilsUInt64($29babe4598c311fb),
+        TPasDblStrUtilsUInt64($f4296dd6fef3d67a),TPasDblStrUtilsUInt64($1899e4a65f58660c),
+        TPasDblStrUtilsUInt64($5ec05dcff72e7f8f),TPasDblStrUtilsUInt64($76707543f4fa1f73),
+        TPasDblStrUtilsUInt64($6a06494a791c53a8),TPasDblStrUtilsUInt64($487db9d17636892),
+        TPasDblStrUtilsUInt64($45a9d2845d3c42b6),TPasDblStrUtilsUInt64($b8a2392ba45a9b2),
+        TPasDblStrUtilsUInt64($8e6cac7768d7141e),TPasDblStrUtilsUInt64($3207d795430cd926),
+        TPasDblStrUtilsUInt64($7f44e6bd49e807b8),TPasDblStrUtilsUInt64($5f16206c9c6209a6),
+        TPasDblStrUtilsUInt64($36dba887c37a8c0f),TPasDblStrUtilsUInt64($c2494954da2c9789),
+        TPasDblStrUtilsUInt64($f2db9baa10b7bd6c),TPasDblStrUtilsUInt64($6f92829494e5acc7),
+        TPasDblStrUtilsUInt64($cb772339ba1f17f9),TPasDblStrUtilsUInt64($ff2a760414536efb),
+        TPasDblStrUtilsUInt64($fef5138519684aba),TPasDblStrUtilsUInt64($7eb258665fc25d69),
+        TPasDblStrUtilsUInt64($ef2f773ffbd97a61),TPasDblStrUtilsUInt64($aafb550ffacfd8fa),
+        TPasDblStrUtilsUInt64($95ba2a53f983cf38),TPasDblStrUtilsUInt64($dd945a747bf26183),
+        TPasDblStrUtilsUInt64($94f971119aeef9e4),TPasDblStrUtilsUInt64($7a37cd5601aab85d),
+        TPasDblStrUtilsUInt64($ac62e055c10ab33a),TPasDblStrUtilsUInt64($577b986b314d6009),
+        TPasDblStrUtilsUInt64($ed5a7e85fda0b80b),TPasDblStrUtilsUInt64($14588f13be847307),
+        TPasDblStrUtilsUInt64($596eb2d8ae258fc8),TPasDblStrUtilsUInt64($6fca5f8ed9aef3bb),
+        TPasDblStrUtilsUInt64($25de7bb9480d5854),TPasDblStrUtilsUInt64($af561aa79a10ae6a),
+        TPasDblStrUtilsUInt64($1b2ba1518094da04),TPasDblStrUtilsUInt64($90fb44d2f05d0842),
+        TPasDblStrUtilsUInt64($353a1607ac744a53),TPasDblStrUtilsUInt64($42889b8997915ce8),
+        TPasDblStrUtilsUInt64($69956135febada11),TPasDblStrUtilsUInt64($43fab9837e699095),
+        TPasDblStrUtilsUInt64($94f967e45e03f4bb),TPasDblStrUtilsUInt64($1d1be0eebac278f5),
+        TPasDblStrUtilsUInt64($6462d92a69731732),TPasDblStrUtilsUInt64($7d7b8f7503cfdcfe),
+        TPasDblStrUtilsUInt64($5cda735244c3d43e),TPasDblStrUtilsUInt64($3a0888136afa64a7),
+        TPasDblStrUtilsUInt64($88aaa1845b8fdd0),TPasDblStrUtilsUInt64($8aad549e57273d45),
+        TPasDblStrUtilsUInt64($36ac54e2f678864b),TPasDblStrUtilsUInt64($84576a1bb416a7dd),
+        TPasDblStrUtilsUInt64($656d44a2a11c51d5),TPasDblStrUtilsUInt64($9f644ae5a4b1b325),
+        TPasDblStrUtilsUInt64($873d5d9f0dde1fee),TPasDblStrUtilsUInt64($a90cb506d155a7ea),
+        TPasDblStrUtilsUInt64($9a7f12442d588f2),TPasDblStrUtilsUInt64($c11ed6d538aeb2f),
+        TPasDblStrUtilsUInt64($8f1668c8a86da5fa),TPasDblStrUtilsUInt64($f96e017d694487bc),
+        TPasDblStrUtilsUInt64($37c981dcc395a9ac),TPasDblStrUtilsUInt64($85bbe253f47b1417),
+        TPasDblStrUtilsUInt64($93956d7478ccec8e),TPasDblStrUtilsUInt64($387ac8d1970027b2),
+        TPasDblStrUtilsUInt64($6997b05fcc0319e),TPasDblStrUtilsUInt64($441fece3bdf81f03),
+        TPasDblStrUtilsUInt64($d527e81cad7626c3),TPasDblStrUtilsUInt64($8a71e223d8d3b074),
+        TPasDblStrUtilsUInt64($f6872d5667844e49),TPasDblStrUtilsUInt64($b428f8ac016561db),
+        TPasDblStrUtilsUInt64($e13336d701beba52),TPasDblStrUtilsUInt64($ecc0024661173473),
+        TPasDblStrUtilsUInt64($27f002d7f95d0190),TPasDblStrUtilsUInt64($31ec038df7b441f4),
+        TPasDblStrUtilsUInt64($7e67047175a15271),TPasDblStrUtilsUInt64($f0062c6e984d386),
+        TPasDblStrUtilsUInt64($52c07b78a3e60868),TPasDblStrUtilsUInt64($a7709a56ccdf8a82),
+        TPasDblStrUtilsUInt64($88a66076400bb691),TPasDblStrUtilsUInt64($6acff893d00ea435),
+        TPasDblStrUtilsUInt64($583f6b8c4124d43),TPasDblStrUtilsUInt64($c3727a337a8b704a),
+        TPasDblStrUtilsUInt64($744f18c0592e4c5c),TPasDblStrUtilsUInt64($1162def06f79df73),
+        TPasDblStrUtilsUInt64($8addcb5645ac2ba8),TPasDblStrUtilsUInt64($6d953e2bd7173692),
+        TPasDblStrUtilsUInt64($c8fa8db6ccdd0437),TPasDblStrUtilsUInt64($1d9c9892400a22a2),
+        TPasDblStrUtilsUInt64($2503beb6d00cab4b),TPasDblStrUtilsUInt64($2e44ae64840fd61d),
+        TPasDblStrUtilsUInt64($5ceaecfed289e5d2),TPasDblStrUtilsUInt64($7425a83e872c5f47),
+        TPasDblStrUtilsUInt64($d12f124e28f77719),TPasDblStrUtilsUInt64($82bd6b70d99aaa6f),
+        TPasDblStrUtilsUInt64($636cc64d1001550b),TPasDblStrUtilsUInt64($3c47f7e05401aa4e),
+        TPasDblStrUtilsUInt64($65acfaec34810a71),TPasDblStrUtilsUInt64($7f1839a741a14d0d),
+        TPasDblStrUtilsUInt64($1ede48111209a050),TPasDblStrUtilsUInt64($934aed0aab460432),
+        TPasDblStrUtilsUInt64($f81da84d5617853f),TPasDblStrUtilsUInt64($36251260ab9d668e),
+        TPasDblStrUtilsUInt64($c1d72b7c6b426019),TPasDblStrUtilsUInt64($b24cf65b8612f81f),
+        TPasDblStrUtilsUInt64($dee033f26797b627),TPasDblStrUtilsUInt64($169840ef017da3b1),
+        TPasDblStrUtilsUInt64($8e1f289560ee864e),TPasDblStrUtilsUInt64($f1a6f2bab92a27e2),
+        TPasDblStrUtilsUInt64($ae10af696774b1db),TPasDblStrUtilsUInt64($acca6da1e0a8ef29),
+        TPasDblStrUtilsUInt64($17fd090a58d32af3),TPasDblStrUtilsUInt64($ddfc4b4cef07f5b0),
+        TPasDblStrUtilsUInt64($4abdaf101564f98e),TPasDblStrUtilsUInt64($9d6d1ad41abe37f1),
+        TPasDblStrUtilsUInt64($84c86189216dc5ed),TPasDblStrUtilsUInt64($32fd3cf5b4e49bb4),
+        TPasDblStrUtilsUInt64($3fbc8c33221dc2a1),TPasDblStrUtilsUInt64($fabaf3feaa5334a),
+        TPasDblStrUtilsUInt64($29cb4d87f2a7400e),TPasDblStrUtilsUInt64($743e20e9ef511012),
+        TPasDblStrUtilsUInt64($914da9246b255416),TPasDblStrUtilsUInt64($1ad089b6c2f7548e),
+        TPasDblStrUtilsUInt64($a184ac2473b529b1),TPasDblStrUtilsUInt64($c9e5d72d90a2741e),
+        TPasDblStrUtilsUInt64($7e2fa67c7a658892),TPasDblStrUtilsUInt64($ddbb901b98feeab7),
+        TPasDblStrUtilsUInt64($552a74227f3ea565),TPasDblStrUtilsUInt64($d53a88958f87275f),
+        TPasDblStrUtilsUInt64($8a892abaf368f137),TPasDblStrUtilsUInt64($2d2b7569b0432d85),
+        TPasDblStrUtilsUInt64($9c3b29620e29fc73),TPasDblStrUtilsUInt64($8349f3ba91b47b8f),
+        TPasDblStrUtilsUInt64($241c70a936219a73),TPasDblStrUtilsUInt64($ed238cd383aa0110),
+        TPasDblStrUtilsUInt64($f4363804324a40aa),TPasDblStrUtilsUInt64($b143c6053edcd0d5),
+        TPasDblStrUtilsUInt64($dd94b7868e94050a),TPasDblStrUtilsUInt64($ca7cf2b4191c8326),
+        TPasDblStrUtilsUInt64($fd1c2f611f63a3f0),TPasDblStrUtilsUInt64($bc633b39673c8cec),
+        TPasDblStrUtilsUInt64($d5be0503e085d813),TPasDblStrUtilsUInt64($4b2d8644d8a74e18),
+        TPasDblStrUtilsUInt64($ddf8e7d60ed1219e),TPasDblStrUtilsUInt64($cabb90e5c942b503),
+        TPasDblStrUtilsUInt64($3d6a751f3b936243),TPasDblStrUtilsUInt64($0cc512670a783ad4),
+        TPasDblStrUtilsUInt64($27fb2b80668b24c5),TPasDblStrUtilsUInt64($b1f9f660802dedf6),
+        TPasDblStrUtilsUInt64($5e7873f8a0396973),TPasDblStrUtilsUInt64($db0b487b6423e1e8),
+        TPasDblStrUtilsUInt64($91ce1a9a3d2cda62),TPasDblStrUtilsUInt64($7641a140cc7810fb),
+        TPasDblStrUtilsUInt64($a9e904c87fcb0a9d),TPasDblStrUtilsUInt64($546345fa9fbdcd44),
+        TPasDblStrUtilsUInt64($a97c177947ad4095),TPasDblStrUtilsUInt64($49ed8eabcccc485d),
+        TPasDblStrUtilsUInt64($5c68f256bfff5a74),TPasDblStrUtilsUInt64($73832eec6fff3111),
+        TPasDblStrUtilsUInt64($c831fd53c5ff7eab),TPasDblStrUtilsUInt64($ba3e7ca8b77f5e55),
+        TPasDblStrUtilsUInt64($28ce1bd2e55f35eb),TPasDblStrUtilsUInt64($7980d163cf5b81b3),
+        TPasDblStrUtilsUInt64($d7e105bcc332621f),TPasDblStrUtilsUInt64($8dd9472bf3fefaa7),
+        TPasDblStrUtilsUInt64($b14f98f6f0feb951),TPasDblStrUtilsUInt64($6ed1bf9a569f33d3),
+        TPasDblStrUtilsUInt64($0a862f80ec4700c8),TPasDblStrUtilsUInt64($cd27bb612758c0fa),
+        TPasDblStrUtilsUInt64($8038d51cb897789c),TPasDblStrUtilsUInt64($e0470a63e6bd56c3),
+        TPasDblStrUtilsUInt64($1858ccfce06cac74),TPasDblStrUtilsUInt64($0f37801e0c43ebc8),
+        TPasDblStrUtilsUInt64($d30560258f54e6ba),TPasDblStrUtilsUInt64($47c6b82ef32a2069),
+        TPasDblStrUtilsUInt64($4cdc331d57fa5441),TPasDblStrUtilsUInt64($e0133fe4adf8e952),
+        TPasDblStrUtilsUInt64($58180fddd97723a6),TPasDblStrUtilsUInt64($570f09eaa7ea7648)
+       );
+var FactorMantissa,Upper,Lower,FactorMantissaLow,
+    ProductLow,ProductMiddle,ProductMiddle1,ProductMiddle2,
+    ProductHigh,UpperBit,Mantissa,RealExponent:TPasDblStrUtilsUInt64;
+    Exponent:TPasDblStrUtilsInt64;
+    LeadingZeros:TPasDblStrUtilsInt32;
+    Product:TPasDblStrUtilsUInt128;
+begin
+ if assigned(aSuccess) then begin
+  aSuccess^:=false;
+ end;
+ if ((-22)<=aBase10Exponent) and (aBase10Exponent<=22) and (aBase10Mantissa<=9007199254740991) and (GetRoundMode=rmNearest) and (GetPrecisionMode in [pmDouble,pmExtended]) then begin
+  result:=aBase10Mantissa;
+  if aBase10Exponent<0 then begin
+   result:=result/PowerOfTen[-aBase10Exponent];
+  end else begin
+   result:=result*PowerOfTen[aBase10Exponent];
+  end;
+  if aNegative then begin
+   result:=-result;
+  end;
+  if assigned(aSuccess) then begin
+   aSuccess^:=true;
+  end;
+  exit;
+ end;
+ if aBase10Mantissa=0 then begin
+  if aNegative then begin
+   result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($8000000000000000));
+  end else begin
+   result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($0000000000000000));
+  end;
+  if assigned(aSuccess) then begin
+   aSuccess^:=true;
+  end;
+  exit;
+ end;
+ if (aBase10Exponent>=FASTFLOAT_SMALLEST_POWER) and (aBase10Exponent<=FASTFLOAT_LARGEST_POWER) then begin
+  FactorMantissa:=Mantissa64[aBase10Exponent];
+{$if declared(SARInt64)}
+  Exponent:=(SARInt64((152170+65536)*aBase10Exponent,16))+(1024+63);
+{$else}
+  Exponent:=(152170+65536)*aBase10Exponent;
+  if (TPasDblStrUtilsUInt64(Exponent) and (TPasDblStrUtilsUInt64(1) shl 63))<>0 then begin
+   Exponent:=TPasDblStrUtilsInt64(TPasDblStrUtilsUInt64((TPasDblStrUtilsUInt64(Exponent) shr 16) or TPasDblStrUtilsUInt64($ffff000000000000)));
+  end else begin
+   Exponent:=TPasDblStrUtilsInt64(TPasDblStrUtilsUInt64(TPasDblStrUtilsUInt64(Exponent) shr 16));
+  end;
+  inc(Exponent,1024+63);
+{$ifend}
+  LeadingZeros:=CLZQWord(aBase10Mantissa);
+  aBase10Mantissa:=aBase10Mantissa shl LeadingZeros;
+  Product:=TPasDblStrUtilsUInt128.Mul64(aBase10Mantissa,FactorMantissa);
+  Upper:=Product.Hi;
+  Lower:=Product.Lo;
+  if ((Upper and $1ff)=$1ff) and ((Lower+aBase10Mantissa)<Lower) then begin
+   FactorMantissaLow:=Mantissa128[aBase10Exponent];
+   Product:=TPasDblStrUtilsUInt128.Mul64(aBase10Mantissa,FactorMantissaLow);
+   ProductLow:=Product.Lo;
+   ProductMiddle2:=Product.Hi;
+   ProductMiddle1:=Lower;
+   ProductHigh:=Upper;
+   ProductMiddle:=ProductMiddle1+ProductMiddle2;
+   if ProductMiddle<ProductMiddle1 then begin
+    inc(ProductHigh);
+   end;
+   if (((ProductMiddle+1)=0) and ((ProductHigh and $1ff)=$1ff) and ((ProductLow+aBase10Mantissa)<ProductLow)) then begin
+    result:=0;
+    exit;
+   end;
+   Upper:=ProductHigh;
+   Lower:=ProductMiddle;
+  end;
+  UpperBit:=Upper shr 63;
+  Mantissa:=Upper shr (UpperBit+9);
+  inc(LeadingZeros,1 xor UpperBit);
+  if ((Lower=0) and ((Upper and $1ff)=0) and ((Mantissa and 3)=1)) then begin
+   result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
+   exit;
+  end;
+  Mantissa:=(Mantissa+(Mantissa and 1)) shr 1;
+  if Mantissa>=(TPasDblStrUtilsUInt64(1) shl 53) then begin
+   Mantissa:=TPasDblStrUtilsUInt64(1) shl 52;
+   dec(LeadingZeros);
+  end;
+  RealExponent:=Exponent-LeadingZeros;
+  if (RealExponent<1) or (RealExponent>2046) then begin
+   result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
+   exit;
+  end;
+  result:=UInt64Bits2Double((TPasDblStrUtilsUInt64(ord(aNegative) and 1) shl 63) or (TPasDblStrUtilsUInt64(RealExponent) shl 52) or (Mantissa and not (TPasDblStrUtilsUInt64(1) shl 52)));
+  if assigned(aSuccess) then begin
+   aSuccess^:=true;
+  end;
+ end else begin
+  result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
+ end;
+end;
+
+function EiselLemireStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aOK:PPasDblStrUtilsBoolean=nil;const aStrict:boolean=false):TPasDblStrUtilsDouble;
+const InvBit53Mask=TPasDblStrUtilsUInt64($ffe0000000000000);
+var StringPosition:TPasDblStrUtilsInt32;
+    Base10Mantissa:TPasDblStrUtilsUInt64;
+    Base10Exponent,ExponentValue:TPasDblStrUtilsInt64;
+    HasDigits,Negative,ExponentNegative:boolean;
+    c:TPasDblStrUtilsChar;
+begin
+ if assigned(aOK) then begin
+  aOK^:=false;
+ end;
+ HasDigits:=false;
+ Negative:=false;
+ StringPosition:=0;
+ Base10Mantissa:=0;
+ Base10Exponent:=1;
+ while (StringPosition<aStringLength) and (aStringValue[StringPosition] in ['-','+']) do begin
+  Negative:=Negative xor (aStringValue[StringPosition]='-');
+  inc(StringPosition);
+ end;
+ while (StringPosition<aStringLength) and (aStringValue[StringPosition]='0') do begin
+  HasDigits:=true;
+  inc(StringPosition);
+ end;
+ while StringPosition<aStringLength do begin
+  c:=aStringValue[StringPosition];
+  case c of
+   '0'..'9':begin
+    HasDigits:=true;
+    Base10Mantissa:=(Base10Mantissa*10)+TPasDblStrUtilsUInt64(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[StringPosition]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('0')));
+    if (Base10Mantissa and InvBit53Mask)<>0 then begin
+     HasDigits:=false;
+     break;
+    end;
+    if Base10Exponent<=0 then begin
+     dec(Base10Exponent);
+    end;
+   end;
+   '.':begin
+    if Base10Exponent<=0 then begin
+     HasDigits:=false;
+     break;
+    end else begin
+     Base10Exponent:=0;
+    end;
+   end;
+   'e','E':begin
+    break;
+   end;
+   else begin
+    HasDigits:=false;
+    break;
+   end;
+  end;
+  inc(StringPosition);
+ end;
+ if HasDigits then begin
+  if Base10Exponent>0 then begin
+   Base10Exponent:=0;
+  end;
+  ExponentValue:=0;
+  ExponentNegative:=false;
+  if (StringPosition<aStringLength) and (aStringValue[StringPosition] in ['e','E']) then begin
+   inc(StringPosition);
+   if (StringPosition<aStringLength) and (aStringValue[StringPosition] in ['+','-']) then begin
+    ExponentNegative:=aStringValue[StringPosition]='-';
+    inc(StringPosition);
+   end;
+   HasDigits:=false;
+   while (StringPosition<aStringLength) and (aStringValue[StringPosition] in ['0'..'9']) do begin
+    ExponentValue:=(ExponentValue*10)+TPasDblStrUtilsInt32(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[StringPosition]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('0')));
+    HasDigits:=true;
+    inc(StringPosition);
+   end;
+  end;
+  if Base10Mantissa=0 then begin
+   Base10Exponent:=0;
+  end else begin
+   if ExponentNegative then begin
+    dec(Base10Exponent,ExponentValue);
+   end else begin
+    inc(Base10Exponent,ExponentValue);
+   end;
+  end;
+ end;
+ if HasDigits then begin
+  result:=ComputeFloat64(Base10Exponent,Base10Mantissa,Negative,aOK);
+ end else begin
+  result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
+ end;
+end;
+
+function EiselLemireStringToDouble(const aStringValue:TPasDblStrUtilsString;const aOK:PPasDblStrUtilsBoolean=nil;const aStrict:boolean=false):TPasDblStrUtilsDouble;
+begin
+ result:=EiselLemireStringToDouble(@aStringValue[1],length(aStringValue),aOK,aStrict);
+end;
+
+function RyuStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aOK:PPasDblStrUtilsBoolean=nil;const aStrict:boolean=false):TPasDblStrUtilsDouble;
 const DOUBLE_MANTISSA_BITS=52;
       DOUBLE_EXPONENT_BITS=11;
       DOUBLE_EXPONENT_BIAS=1023;
@@ -2859,7 +3702,7 @@ begin
  end;
 end;
 
-function RyuStringToDouble(const aStringValue:TPasDblStrUtilsString;const aOK:PPasDblStrUtilsBoolean=nil;const aStrict:boolean=false):TPasDblStrUtilsDouble; overload;
+function RyuStringToDouble(const aStringValue:TPasDblStrUtilsString;const aOK:PPasDblStrUtilsBoolean=nil;const aStrict:boolean=false):TPasDblStrUtilsDouble;
 begin
  result:=RyuStringToDouble(@aStringValue[1],length(aStringValue),aOK,aStrict);
 end;
@@ -3568,14 +4411,27 @@ begin
   aOK^:=false;
  end;
  if (aRoundingMode=rmNearest) and ((aBase<0) or (aBase=10)) then begin
-  // Fast path
-  TemporaryOK:=false;
-  result:=RyuStringToDouble(aStringValue,aStringLength,@TemporaryOK,true);
-  if TemporaryOK then begin
-   if assigned(aOK) then begin
-    aOK^:=true;
+  begin
+   // Very fast path
+   TemporaryOK:=false;
+   result:=EiselLemireStringToDouble(aStringValue,aStringLength,@TemporaryOK,true);
+   if TemporaryOK then begin
+    if assigned(aOK) then begin
+     aOK^:=true;
+    end;
+    exit;
    end;
-   exit;
+  end;
+  begin
+   // Fast path
+   TemporaryOK:=false;
+   result:=RyuStringToDouble(aStringValue,aStringLength,@TemporaryOK,true);
+   if TemporaryOK then begin
+    if assigned(aOK) then begin
+     aOK^:=true;
+    end;
+    exit;
+   end;
   end;
  end;
  begin
