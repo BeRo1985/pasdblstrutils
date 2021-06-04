@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2021-06-04-22-51-0000                       *
+ *                        Version 2021-06-04-23-10-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -2705,7 +2705,7 @@ begin
     DotPosition:=Position;
    end;
    '0'..'9':begin
-    if CountBase10MantissaDigits<19 then begin
+    if CountBase10MantissaDigits<17 then begin
      Base10Mantissa:=(Base10Mantissa*10)+TPasDblStrUtilsUInt64(TPasDblStrUtilsUInt8(AnsiChar(c))-TPasDblStrUtilsUInt8(AnsiChar('0')));
      if Base10Mantissa<>0 then begin
       inc(CountBase10MantissaDigits);
@@ -2719,11 +2719,6 @@ begin
    end;
   end;
   inc(Position);
- end;
- while CountBase10MantissaDigits>18 do begin
-  Base10Mantissa:=RoundDiv10(Base10Mantissa);
-  dec(CountBase10MantissaDigits);
-  inc(ExtraCountBase10MantissaDigits);
  end;
  if (Position<aStringLength) and (aStringValue[Position] in ['e','E']) then begin
   ExponentPosition:=Position;
