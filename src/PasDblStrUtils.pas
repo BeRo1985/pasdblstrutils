@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2021-06-04-17-15-0000                       *
+ *                        Version 2021-06-04-17-21-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -983,13 +983,13 @@ asm
 {$if defined(Windows)}
  // Win64 ABI in-order: rcx rdx r8 r9
  mov rax,rdx
- imul r8
+ mul r8
  mov qword ptr [rcx],rax
  mov qword ptr [rcx+8],rdx
 {$else}
  // SysV ABI in-order: rdi rsi rdx rcx r8 r9
  mov rax,rsi
- imul rdx
+ mul rdx
  mov qword ptr [rdi],rax
  mov qword ptr [rdi+8],rdx
 {$ifend}
@@ -1007,8 +1007,8 @@ begin
  w1:=t and TPasDblStrUtilsUInt64($ffffffff);
  w2:=t shr 32;
  t:=(u0*v1)+w1;
- result.Hi:=((u1*v1)+w2)+(t shr 32);
- result.Lo:=(t shl 32)+w0;
+ r.Hi:=((u1*v1)+w2)+(t shr 32);
+ r.Lo:=(t shl 32)+w0;
 end;
 {$ifend}
 
@@ -1020,13 +1020,13 @@ asm
 {$if defined(Windows)}
  // Win64 ABI in-order: rcx rdx r8 r9
  mov rax,rdx
- imul r8
+ mul r8
  mov qword ptr [rcx],rax
  mov qword ptr [rcx+8],rdx
 {$else}
  // SysV ABI in-order: rdi rsi rdx rcx r8 r9
  mov rax,rsi
- imul rdx
+ mul rdx
  mov qword ptr [rdi],rax
  mov qword ptr [rdi+8],rdx
 {$ifend}
