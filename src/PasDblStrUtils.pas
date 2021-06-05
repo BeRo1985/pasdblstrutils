@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2021-06-04-01-11-0000                       *
+ *                        Version 2021-06-04-05-32-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -303,7 +303,7 @@
 {$endif}
 {$rangechecks off}
 {$extendedsyntax on}
-{$writeableconst on}
+{$writeableconst off}
 {$hints off}
 {$booleval off}
 {$typedaddress off}
@@ -313,6 +313,9 @@
 {$overflowchecks off}
 {$longstrings on}
 {$openstrings on}
+{$ifdef fpc}
+ //{$optimization level3}
+{$endif}
 
 interface
 
@@ -4435,44 +4438,44 @@ const DoubleToStringPowerOfTenTable:array[0..86,0..2] of TPasDblStrUtilsInt64=((
 function ConvertStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aRoundingMode:TPasDblStrUtilsRoundingMode=rmNearest;const aOK:PPasDblStrUtilsBoolean=nil;const aBase:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsDouble;
 var TemporaryOK:TPasDblStrUtilsBoolean;
 begin
+
+ TemporaryOK:=false;
+
+ repeat
+
+  if (aRoundingMode=rmNearest) and ((aBase<0) or (aBase=10)) then begin
+
+   begin
+    // Very fast path
+    result:=EiselLemireStringToDouble(aStringValue,aStringLength,@TemporaryOK,true);
+    if TemporaryOK then begin
+     break;
+    end;
+   end;
+
+   begin
+    // Fast path
+    result:=RyuStringToDouble(aStringValue,aStringLength,@TemporaryOK,true);
+    if TemporaryOK then begin
+     break;
+    end;
+   end;
+
+  end;
+
+  begin
+   // Damn slow path
+   result:=FallbackStringToDouble(aStringValue,aStringLength,aRoundingMode,@TemporaryOK,aBase);
+  end;
+
+  break;
+
+ until true;
+
  if assigned(aOK) then begin
-  aOK^:=false;
+  aOK^:=TemporaryOK;
  end;
- if (aRoundingMode=rmNearest) and ((aBase<0) or (aBase=10)) then begin
-  begin
-   // Very fast path
-   TemporaryOK:=false;
-   result:=EiselLemireStringToDouble(aStringValue,aStringLength,@TemporaryOK,true);
-   if TemporaryOK then begin
-    if assigned(aOK) then begin
-     aOK^:=true;
-    end;
-    exit;
-   end;
-  end;
-  begin
-   // Fast path
-   TemporaryOK:=false;
-   result:=RyuStringToDouble(aStringValue,aStringLength,@TemporaryOK,true);
-   if TemporaryOK then begin
-    if assigned(aOK) then begin
-     aOK^:=true;
-    end;
-    exit;
-   end;
-  end;
- end;
- begin
-  // Damn slow path
-  TemporaryOK:=false;
-  result:=FallbackStringToDouble(aStringValue,aStringLength,aRoundingMode,@TemporaryOK,aBase);
-  if TemporaryOK then begin
-   if assigned(aOK) then begin
-    aOK^:=true;
-   end;
-   exit;
-  end;
- end;
+
 end;
 
 function ConvertStringToDouble(const aStringValue:TPasDblStrUtilsString;const aRoundingMode:TPasDblStrUtilsRoundingMode=rmNearest;const aOK:PPasDblStrUtilsBoolean=nil;const aBase:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsDouble;
