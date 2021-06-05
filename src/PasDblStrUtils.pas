@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2021-06-04-05-45-0000                       *
+ *                        Version 2021-06-04-16-07-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -3288,7 +3288,12 @@ begin
  if assigned(aSuccess) then begin
   aSuccess^:=false;
  end;
- if ((-22)<=aBase10Exponent) and (aBase10Exponent<=22) and (aBase10Mantissa<=9007199254740991) {$ifndef PasDblStrUtilsNoFPUModeCheck}and (GetRoundMode=rmNearest) and (GetPrecisionMode in [pmDouble,pmExtended]){$endif} then begin
+ if ({$if defined(PasDblStrUtilsDenormalsAreNotZeros) or (((not defined(fpc)) and defined(cpu386)) or (defined(fpc) and defined(fpux87)))}(-22){$else}0{$ifend}<=aBase10Exponent) and
+    (aBase10Exponent<=22) and
+    (aBase10Mantissa<=9007199254740991)
+    {$ifndef PasDblStrUtilsNoFPUModeCheck}
+     and (GetRoundMode=rmNearest) and (GetPrecisionMode in [pmDouble,pmExtended])
+    {$endif} then begin
   result:=aBase10Mantissa;
   if aBase10Exponent<0 then begin
    result:=result/PowerOfTen[-aBase10Exponent];
