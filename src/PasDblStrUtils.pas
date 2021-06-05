@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2021-06-04-17-21-0000                       *
+ *                        Version 2021-06-04-22-16-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -425,6 +425,30 @@ type PPasDblStrUtilsInt8=^TPasDblStrUtilsInt8;
       omRadix
      );
 
+     TPasDblStrUtilsBigUnsignedInteger=record
+      public
+       type TWord=TPasDblStrUtilsUInt32;
+            PWord=^TWord;
+            TWords=array of TWord;
+      public
+       Words:TWords;
+       Count:TPasDblStrUtilsInt32;
+      public
+       class operator Implicit(const a:TPasDblStrUtilsUInt64):TPasDblStrUtilsBigUnsignedInteger; {$ifdef caninline}inline;{$endif}
+       class operator Implicit(const a:TPasDblStrUtilsBigUnsignedInteger):TPasDblStrUtilsUInt64; {$ifdef caninline}inline;{$endif}
+       class operator Explicit(const a:TPasDblStrUtilsUInt64):TPasDblStrUtilsBigUnsignedInteger; {$ifdef caninline}inline;{$endif}
+       class operator Explicit(const a:TPasDblStrUtilsBigUnsignedInteger):TPasDblStrUtilsUInt64; {$ifdef caninline}inline;{$endif}
+       procedure Clear;
+       procedure ShiftLeft(const aBits:TPasDblStrUtilsUInt32); overload;
+       procedure ShiftRight(const aBits:TPasDblStrUtilsUInt32); overload;
+       procedure Add(const aWith:TPasDblStrUtilsBigUnsignedInteger); overload;
+       procedure Add(const aWith:TPasDblStrUtilsUInt32); overload;
+       procedure Sub(const aWith:TPasDblStrUtilsUInt32); overload;
+       procedure Mul(const aWith:TPasDblStrUtilsUInt32); overload;
+       procedure Mul(const aWith:TPasDblStrUtilsBigUnsignedInteger); overload;
+       procedure MulAdd(const aMul,aAdd:TPasDblStrUtilsUInt32); overload;
+     end;
+
 function FallbackStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aRoundingMode:TPasDblStrUtilsRoundingMode=rmNearest;const aOK:PPasDblStrUtilsBoolean=nil;const aBase:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsDouble; overload;
 function FallbackStringToDouble(const aStringValue:TPasDblStrUtilsString;const aRoundingMode:TPasDblStrUtilsRoundingMode=rmNearest;const aOK:PPasDblStrUtilsBoolean=nil;const aBase:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsDouble; overload;
 
@@ -743,6 +767,337 @@ begin
  result:=(aHi shl (64-aShift)) or (aLo shr aShift);
 end;
 {$ifend}
+
+class operator TPasDblStrUtilsBigUnsignedInteger.Implicit(const a:TPasDblStrUtilsUInt64):TPasDblStrUtilsBigUnsignedInteger;
+begin
+ if (a and TPasDblStrUtilsUInt64($ffffffff00000000))<>0 then begin
+  result.Count:=2;
+  SetLength(result.Words,result.Count);
+  result.Words[0]:=a and TPasDblStrUtilsUInt32($ffffffff);
+  result.Words[1]:=a shr 32;
+ end else begin
+  result.Count:=1;
+  SetLength(result.Words,result.Count);
+  result.Words[0]:=a and TPasDblStrUtilsUInt32($ffffffff);
+ end;
+end;
+
+class operator TPasDblStrUtilsBigUnsignedInteger.Implicit(const a:TPasDblStrUtilsBigUnsignedInteger):TPasDblStrUtilsUInt64;
+begin
+ if a.Count>0 then begin
+  result:=a.Words[0];
+  if a.Count>1 then begin
+   result:=result or (TPasDblStrUtilsUInt64(a.Words[1]) shl 32);
+  end;
+ end else begin
+  result:=0;
+ end;
+end;
+
+class operator TPasDblStrUtilsBigUnsignedInteger.Explicit(const a:TPasDblStrUtilsUInt64):TPasDblStrUtilsBigUnsignedInteger;
+begin
+ if (a and TPasDblStrUtilsUInt64($ffffffff00000000))<>0 then begin
+  result.Count:=2;
+  SetLength(result.Words,result.Count);
+  result.Words[0]:=a and TPasDblStrUtilsUInt32($ffffffff);
+  result.Words[1]:=a shr 32;
+ end else begin
+  result.Count:=1;
+  SetLength(result.Words,result.Count);
+  result.Words[0]:=a and TPasDblStrUtilsUInt32($ffffffff);
+ end;
+end;
+
+class operator TPasDblStrUtilsBigUnsignedInteger.Explicit(const a:TPasDblStrUtilsBigUnsignedInteger):TPasDblStrUtilsUInt64;
+begin
+ if a.Count>0 then begin
+  result:=a.Words[0];
+  if a.Count>1 then begin
+   result:=result or (TPasDblStrUtilsUInt64(a.Words[1]) shl 32);
+  end;
+ end else begin
+  result:=0;
+ end;
+end;
+
+procedure TPasDblStrUtilsBigUnsignedInteger.Clear;
+begin
+ Count:=0;
+end;
+
+procedure TPasDblStrUtilsBigUnsignedInteger.ShiftLeft(const aBits:TPasDblStrUtilsUInt32);
+var NewWords:TWords;
+    Index,NewCount,LowOffset,HighOffset,LowShift,HighShift,Offset:TPasDblStrUtilsInt32;
+    Value:TWord;
+begin
+ NewWords:=nil;
+ try
+  NewCount:=Count+((aBits+31) shr 5);
+  SetLength(NewWords,NewCount);
+  if (aBits and 31)<>0 then begin
+   LowOffset:=(aBits-1) shr 5;
+   HighOffset:=LowOffset+1;
+   LowShift:=aBits-(LowOffset shl 5);
+   HighShift:=32-LowShift;
+   for Index:=0 to NewCount-2 do begin
+    NewWords[Index]:=0;
+   end;
+   if (NewCount-HighOffset)<Count then begin
+    NewWords[NewCount-1]:=Words[NewCount-HighOffset] shl LowShift;
+   end else begin
+    NewWords[NewCount-1]:=0;
+   end;
+   for Index:=(NewCount-1)-HighOffset downto 0 do begin
+    if Index<Count then begin
+     Value:=Words[Index];
+    end else begin
+     Value:=0;
+    end;
+    NewWords[Index+LowOffset]:=NewWords[Index+LowOffset] or (Value shl LowShift);
+    NewWords[Index+HighOffset]:=NewWords[Index+HighOffset] or (Value shr HighShift);
+   end;
+  end else begin
+   Offset:=aBits shr 5;
+   for Index:=NewCount-1 downto Offset do begin
+    if (Index-Offset)<Count then begin
+     Value:=Words[Index-Offset];
+    end else begin
+     Value:=0;
+    end;
+    NewWords[Index]:=Words[Index-Offset];
+   end;
+   for Index:=0 to Offset-1 do begin
+    NewWords[Index]:=0;
+   end;
+  end;
+  Words:=NewWords;
+  Count:=NewCount;
+ finally
+  NewWords:=nil;
+ end;
+end;
+
+procedure TPasDblStrUtilsBigUnsignedInteger.ShiftRight(const aBits:TPasDblStrUtilsUInt32);
+var NewWords:TWords;
+    Index,NewCount,LowOffset,HighOffset,LowShift,HighShift,Offset:TPasDblStrUtilsInt32;
+    Value:TWord;
+begin
+ NewWords:=nil;
+ try
+  SetLength(NewWords,Count);
+  if (aBits and 31)<>0 then begin
+   HighOffset:=(aBits-1) shr 5;
+   LowOffset:=HighOffset+1;
+   HighShift:=aBits-(HighOffset shl 5);
+   LowShift:=32-HighShift;
+   NewWords[0]:=Words[HighOffset] shr HighShift;
+   for Index:=1 to Count-1 do begin
+    NewWords[Index]:=0;
+   end;
+   for Index:=LowOffset to Count-1 do begin
+    Value:=Words[Index];
+    NewWords[Index-HighOffset]:=NewWords[Index-HighOffset] or (Value shr HighShift);
+    NewWords[Index-LowOffset]:=NewWords[Index-LowOffset] or (Value shl LowShift);
+   end;
+  end else begin
+   Offset:=aBits shr 5;
+   for Index:=Count-1 downto Offset do begin
+    NewWords[Index-Offset]:=Words[Index];
+   end;
+   for Index:=Count-Offset to Count-1 do begin
+    NewWords[Index]:=0;
+   end;
+  end;
+  while (Count>1) and (NewWords[Count-1]=0) do begin
+   dec(Count);
+  end;
+  Words:=copy(NewWords,0,Count);
+ finally
+  NewWords:=nil;
+ end;
+end;
+
+procedure TPasDblStrUtilsBigUnsignedInteger.Add(const aWith:TPasDblStrUtilsBigUnsignedInteger);
+var NewCount,Index,CommonCount,OldCount,OtherIndex:TPasDblStrUtilsInt32;
+    Carry:TPasDblStrUtilsUInt32;
+    Temporary:TPasDblStrUtilsUInt64;
+begin
+ if Count<aWith.Count then begin
+  NewCount:=aWith.Count;
+ end else begin
+  NewCount:=Count;
+ end;
+ inc(NewCount);
+ if length(Words)<NewCount then begin
+  SetLength(Words,NewCount+((NewCount+1) shr 1));
+  for Index:=Count to NewCount-1 do begin
+   Words[0]:=0;
+  end;
+ end;
+ Count:=NewCount;
+ if Count>aWith.Count then begin
+  CommonCount:=aWith.Count;
+ end else begin
+  CommonCount:=Count;
+ end;
+ Carry:=0;
+ for Index:=0 to CommonCount-1 do begin
+  Temporary:=Words[Index]+aWith.Words[Index]+Carry;
+  Words[Index]:=Temporary and TPasDblStrUtilsUInt32($ffffffff);
+  Carry:=Temporary shr 32;
+ end;
+ Index:=CommonCount;
+ while (Carry<>0) and (Index<Count) do begin
+  Temporary:=Words[Index]+Carry;
+  Words[Index]:=Temporary and TPasDblStrUtilsUInt32($ffffffff);
+  Carry:=Temporary shr 32;
+  inc(Index);
+ end;
+ if Carry<>0 then begin
+  if Count<=Index then begin
+   OldCount:=Count;
+   Count:=Index+1;
+   if length(Words)<Count then begin
+    SetLength(Words,Count+((Count+1) shr 1));
+   end;
+   for OtherIndex:=OldCount to Count-1 do begin
+    Words[OtherIndex]:=0;
+   end;
+  end;
+  Words[Index]:=Carry;
+ end;
+end;
+
+procedure TPasDblStrUtilsBigUnsignedInteger.Add(const aWith:TPasDblStrUtilsUInt32);
+var Index,OldCount,OtherIndex:TPasDblStrUtilsInt32;
+    Carry:TPasDblStrUtilsUInt32;
+    Temporary:TPasDblStrUtilsUInt64;
+begin
+ Index:=0;
+ Carry:=aWith;
+ while (Carry<>0) and (Index<Count) do begin
+  Temporary:=Words[Index]+Carry;
+  Words[Index]:=Temporary and TPasDblStrUtilsUInt32($ffffffff);
+  Carry:=Temporary shr 32;
+  inc(Index);
+ end;
+ if Carry<>0 then begin
+  if Count<=Index then begin
+   OldCount:=Count;
+   Count:=Index+1;
+   if length(Words)<Count then begin
+    SetLength(Words,Count+((Count+1) shr 1));
+   end;
+   for OtherIndex:=OldCount to Count-1 do begin
+    Words[OtherIndex]:=0;
+   end;
+  end;
+  Words[Index]:=Carry;
+ end;
+end;
+
+procedure TPasDblStrUtilsBigUnsignedInteger.Sub(const aWith:TPasDblStrUtilsUInt32);
+var Index:TPasDblStrUtilsInt32;
+    Borrow:TPasDblStrUtilsUInt32;
+    Temporary:TPasDblStrUtilsUInt64;
+begin
+ Index:=0;
+ Borrow:=aWith;
+ while (Borrow<>0) and (Index<Count) do begin
+  Temporary:=Words[Index]-Borrow;
+  Words[Index]:=Temporary and TPasDblStrUtilsUInt32($ffffffff);
+  Borrow:=Temporary shr 63;
+  inc(Index);
+ end;
+end;
+
+procedure TPasDblStrUtilsBigUnsignedInteger.Mul(const aWith:TPasDblStrUtilsUInt32);
+var Index,OldCount,OtherIndex:TPasDblStrUtilsInt32;
+    Carry:TPasDblStrUtilsUInt32;
+    Temporary:TPasDblStrUtilsUInt64;
+begin
+ Index:=0;
+ Carry:=0;
+ for Index:=0 to Count-1 do begin
+  Temporary:=(Words[Index]*TPasDblStrUtilsUInt64(aWith))+Carry;
+  Words[Index]:=Temporary and TPasDblStrUtilsUInt32($ffffffff);
+  Carry:=Temporary shr 32;
+ end;
+ if Carry<>0 then begin
+  Index:=Count;
+  OldCount:=Count;
+  inc(Count);
+  if length(Words)<Count then begin
+   SetLength(Words,Count+((Count+1) shr 1));
+  end;
+  for OtherIndex:=OldCount to Count-1 do begin
+   Words[OtherIndex]:=0;
+  end;
+  Words[Index]:=Carry;
+ end;
+end;
+
+procedure TPasDblStrUtilsBigUnsignedInteger.Mul(const aWith:TPasDblStrUtilsBigUnsignedInteger);
+var Index,ShiftCount,BitIndex:TPasDblStrUtilsInt32;
+    Value:TWord;
+    Temporary,Sum:TPasDblStrUtilsBigUnsignedInteger;
+begin
+ ShiftCount:=0;
+ Temporary:=self;
+ Sum.Clear;
+ for Index:=0 to aWith.Count-1 do begin
+  Value:=aWith.Words[Index];
+  if Value<>0 then begin
+   for BitIndex:=0 to 31 do begin
+    if (Value and (TPasDblStrUtilsUInt32(1) shl BitIndex))<>0 then begin
+     if ShiftCount<>0 then begin
+      Temporary.ShiftLeft(ShiftCount);
+      ShiftCount:=0;
+     end;
+     Sum.Add(Temporary);
+    end;
+    inc(ShiftCount);
+   end;
+  end else begin
+   inc(ShiftCount,32);
+  end;
+ end;
+ while (Sum.Count>1) and (Sum.Words[Sum.Count-1]=0) do begin
+  dec(Sum.Count);
+ end;
+ if Sum.Count<length(Words) then begin
+  Move(Sum.Words[0],Words[0],Sum.Count*SizeOf(TWord));
+ end else begin
+  Words:=copy(Sum.Words,0,Sum.Count);
+ end;
+ Count:=Sum.Count;
+end;
+
+procedure TPasDblStrUtilsBigUnsignedInteger.MulAdd(const aMul,aAdd:TPasDblStrUtilsUInt32);
+var Index,OldCount,OtherIndex:TPasDblStrUtilsInt32;
+    Carry:TPasDblStrUtilsUInt32;
+    Temporary:TPasDblStrUtilsUInt64;
+begin
+ Index:=0;
+ Carry:=aAdd;
+ for Index:=0 to Count-1 do begin
+  Temporary:=(Words[Index]*TPasDblStrUtilsUInt64(aMul))+Carry;
+  Words[Index]:=Temporary and TPasDblStrUtilsUInt32($ffffffff);
+  Carry:=Temporary shr 32;
+ end;
+ if Carry<>0 then begin
+  Index:=Count;
+  OldCount:=Count;
+  inc(Count);
+  if length(Words)<Count then begin
+   SetLength(Words,Count+((Count+1) shr 1));
+  end;
+  for OtherIndex:=OldCount to Count-1 do begin
+   Words[OtherIndex]:=0;
+  end;
+  Words[Index]:=Carry;
+ end;
+end;
 
 type TPasDblStrUtilsUInt128=packed record
       public
@@ -3446,7 +3801,7 @@ begin
 end;
 
 function EiselLemireStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aOK:PPasDblStrUtilsBoolean=nil;const aStrict:boolean=false):TPasDblStrUtilsDouble;
-const InvBit53Mask=TPasDblStrUtilsUInt64($ffe0000000000000);
+const Base10MantissaLimit=TPasDblStrUtilsUInt64(999999999999999990);
 var StringPosition:TPasDblStrUtilsInt32;
     Base10Mantissa:TPasDblStrUtilsUInt64;
     Base10Exponent,ExponentValue:TPasDblStrUtilsInt64;
@@ -3471,7 +3826,7 @@ begin
    case c of
     '0'..'9':begin
      Base10Mantissa:=(Base10Mantissa*10)+TPasDblStrUtilsUInt64(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[StringPosition]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('0')));
-     if (Base10Mantissa and InvBit53Mask)<>0 then begin
+     if Base10Mantissa>=Base10MantissaLimit then begin
       result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
       if assigned(aOK) then begin
        aOK^:=false;
@@ -3496,7 +3851,7 @@ begin
     case c of
      '0'..'9':begin
       Base10Mantissa:=(Base10Mantissa*10)+TPasDblStrUtilsUInt64(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[StringPosition]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('0')));
-      if (Base10Mantissa and InvBit53Mask)<>0 then begin
+      if Base10Mantissa>=Base10MantissaLimit then begin
        result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
        if assigned(aOK) then begin
         aOK^:=false;
