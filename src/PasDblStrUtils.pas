@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2021-06-04-22-16-0000                       *
+ *                        Version 2021-06-04-23-27-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -439,6 +439,7 @@ type PPasDblStrUtilsInt8=^TPasDblStrUtilsInt8;
        class operator Explicit(const a:TPasDblStrUtilsUInt64):TPasDblStrUtilsBigUnsignedInteger; {$ifdef caninline}inline;{$endif}
        class operator Explicit(const a:TPasDblStrUtilsBigUnsignedInteger):TPasDblStrUtilsUInt64; {$ifdef caninline}inline;{$endif}
        procedure Clear;
+       function IsZero:boolean;
        procedure ShiftLeft(const aBits:TPasDblStrUtilsUInt32); overload;
        procedure ShiftRight(const aBits:TPasDblStrUtilsUInt32); overload;
        procedure Add(const aWith:TPasDblStrUtilsBigUnsignedInteger); overload;
@@ -451,6 +452,9 @@ type PPasDblStrUtilsInt8=^TPasDblStrUtilsInt8;
 
 function FallbackStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aRoundingMode:TPasDblStrUtilsRoundingMode=rmNearest;const aOK:PPasDblStrUtilsBoolean=nil;const aBase:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsDouble; overload;
 function FallbackStringToDouble(const aStringValue:TPasDblStrUtilsString;const aRoundingMode:TPasDblStrUtilsRoundingMode=rmNearest;const aOK:PPasDblStrUtilsBoolean=nil;const aBase:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsDouble; overload;
+
+function BigIntegerStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aOK:PPasDblStrUtilsBoolean=nil):TPasDblStrUtilsDouble; overload;
+function BigIntegerStringToDouble(const aStringValue:TPasDblStrUtilsString;const aOK:PPasDblStrUtilsBoolean=nil):TPasDblStrUtilsDouble; overload;
 
 function EiselLemireStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aOK:PPasDblStrUtilsBoolean=nil;const aStrict:boolean=false):TPasDblStrUtilsDouble; overload;
 function EiselLemireStringToDouble(const aStringValue:TPasDblStrUtilsString;const aOK:PPasDblStrUtilsBoolean=nil;const aStrict:boolean=false):TPasDblStrUtilsDouble; overload;
@@ -825,10 +829,22 @@ begin
  Count:=0;
 end;
 
+function TPasDblStrUtilsBigUnsignedInteger.IsZero:boolean;
+var Index:TPasDblStrUtilsInt32;
+begin
+ result:=true;
+ for Index:=0 to Count-1 do begin
+  if Words[Index]<>0 then begin
+   result:=false;
+   exit;
+  end;
+ end;
+end;
+
 procedure TPasDblStrUtilsBigUnsignedInteger.ShiftLeft(const aBits:TPasDblStrUtilsUInt32);
-var NewWords:TWords;
-    Index,NewCount,LowOffset,HighOffset,LowShift,HighShift,Offset:TPasDblStrUtilsInt32;
+var Index,NewCount,LowOffset,HighOffset,LowShift,HighShift,Offset:TPasDblStrUtilsInt32;
     Value:TWord;
+    NewWords:TWords;
 begin
  NewWords:=nil;
  try
@@ -878,9 +894,9 @@ begin
 end;
 
 procedure TPasDblStrUtilsBigUnsignedInteger.ShiftRight(const aBits:TPasDblStrUtilsUInt32);
-var NewWords:TWords;
-    Index,NewCount,LowOffset,HighOffset,LowShift,HighShift,Offset:TPasDblStrUtilsInt32;
+var Index,LowOffset,HighOffset,LowShift,HighShift,Offset:TPasDblStrUtilsInt32;
     Value:TWord;
+    NewWords:TWords;
 begin
  NewWords:=nil;
  try
@@ -1343,10 +1359,8 @@ asm
  mov qword ptr [rcx+8],rdx
 {$else}
  // SysV ABI in-order: rdi rsi rdx rcx r8 r9
- mov rax,rsi
- mul rdx
- mov qword ptr [rdi],rax
- mov qword ptr [rdi+8],rdx
+ mov rax,rdi
+ mul rsi
 {$ifend}
 end;
 {$else}
@@ -1380,10 +1394,8 @@ asm
  mov qword ptr [rcx+8],rdx
 {$else}
  // SysV ABI in-order: rdi rsi rdx rcx r8 r9
- mov rax,rsi
- mul rdx
- mov qword ptr [rdi],rax
- mov qword ptr [rdi+8],rdx
+ mov rax,rdi
+ mul rsi
 {$ifend}
 end;
 {$else}
@@ -3052,6 +3064,115 @@ begin
  result:=FallbackStringToDouble(@aStringValue[1],length(aStringValue),aRoundingMode,aOK,aBase);
 end;
 
+function BigIntegerStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aOK:PPasDblStrUtilsBoolean=nil):TPasDblStrUtilsDouble; overload;
+var StringPosition:TPasDblStrUtilsInt32;
+    Base10Mantissa:TPasDblStrUtilsBigUnsignedInteger;
+    Base10Exponent,ExponentValue:TPasDblStrUtilsInt64;
+    HasDigits,Negative,ExponentNegative:boolean;
+    c:TPasDblStrUtilsChar;
+begin
+
+ Negative:=false;
+ StringPosition:=0;
+ Base10Mantissa:=0;
+ Base10Exponent:=0;
+
+ while (StringPosition<aStringLength) and (aStringValue[StringPosition] in ['-','+']) do begin
+  Negative:=Negative xor (aStringValue[StringPosition]='-');
+  inc(StringPosition);
+ end;
+
+ HasDigits:=(StringPosition<aStringLength) and (aStringValue[StringPosition] in ['0'..'9']);
+ if HasDigits then begin
+  while StringPosition<aStringLength do begin
+   c:=aStringValue[StringPosition];
+   case c of
+    '0'..'9':begin
+     Base10Mantissa.MulAdd(10,TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[StringPosition]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('0')));
+     inc(StringPosition);
+    end;
+    else begin
+     break;
+    end;
+   end;
+  end;
+ end;
+
+ if (StringPosition<aStringLength) and (aStringValue[StringPosition]='.') then begin
+  inc(StringPosition);
+  if (StringPosition<aStringLength) and (aStringValue[StringPosition] in ['0'..'9']) then begin
+   HasDigits:=true;
+   while StringPosition<aStringLength do begin
+    c:=aStringValue[StringPosition];
+    case c of
+     '0'..'9':begin
+      Base10Mantissa.MulAdd(10,TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[StringPosition]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('0')));
+      inc(StringPosition);
+      dec(Base10Exponent);
+     end;
+     else begin
+      break;
+     end;
+    end;
+   end;
+  end;
+ end;
+
+ if not HasDigits then begin
+  result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
+  if assigned(aOK) then begin
+   aOK^:=false;
+  end;
+  exit;
+ end;
+
+ if (StringPosition<aStringLength) and (aStringValue[StringPosition] in ['e','E']) then begin
+  inc(StringPosition);
+  if (StringPosition<aStringLength) and (aStringValue[StringPosition] in ['+','-']) then begin
+   ExponentNegative:=aStringValue[StringPosition]='-';
+   inc(StringPosition);
+  end else begin
+   ExponentNegative:=false;
+  end;
+  if (StringPosition<aStringLength) and (aStringValue[StringPosition] in ['0'..'9']) then begin
+   ExponentValue:=0;
+   repeat
+    ExponentValue:=(ExponentValue*10)+TPasDblStrUtilsInt32(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[StringPosition]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('0')));
+    inc(StringPosition);
+   until (StringPosition>=aStringLength) or not (aStringValue[StringPosition] in ['0'..'9']);
+   if ExponentNegative then begin
+    dec(Base10Exponent,ExponentValue);
+   end else begin
+    inc(Base10Exponent,ExponentValue);
+   end;
+  end else begin
+   result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
+   if assigned(aOK) then begin
+    aOK^:=false;
+   end;
+   exit;
+  end;
+ end;
+
+ if Base10Mantissa.IsZero then begin
+  Base10Exponent:=0;
+ end;
+
+ if StringPosition>=aStringLength then begin
+ end else begin
+  result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
+  if assigned(aOK) then begin
+   aOK^:=false;
+  end;
+ end;
+
+end;
+
+function BigIntegerStringToDouble(const aStringValue:TPasDblStrUtilsString;const aOK:PPasDblStrUtilsBoolean=nil):TPasDblStrUtilsDouble; overload;
+begin
+ result:=BigIntegerStringToDouble(@aStringValue[1],length(aStringValue),aOK);
+end;
+
 const FASTFLOAT_SMALLEST_POWER=-325;
       FASTFLOAT_LARGEST_POWER=308;
 
@@ -3935,7 +4056,7 @@ var CountBase10MantissaDigits,ExtraCountBase10MantissaDigits,CountBase10Exponent
     Base10Exponent,Position,Base2Exponent,Shift,Temporary,Exponent:TPasDblStrUtilsInt32;
     Base10Mantissa,Base2Mantissa,IEEEMantissa:TPasDblStrUtilsUInt64;
     IEEEExponent,LastRemovedBit:TPasDblStrUtilsUInt32;
-    SignedMantissa,SignedExponent,TrailingZeros,RoundUp,ExtraRoundUp:boolean;
+    SignedMantissa,SignedExponent,TrailingZeros,RoundUp:boolean;
     c:AnsiChar;
 begin
  if assigned(aOK) then begin
@@ -3954,7 +4075,6 @@ begin
  Base10Exponent:=0;
  SignedMantissa:=false;
  SignedExponent:=false;
- ExtraRoundUp:=false;
  Position:=0;
  while (Position<aStringLength) and (aStringValue[Position] in [#0..#32]) do begin
   inc(Position);
@@ -4144,7 +4264,7 @@ begin
  Assert(Shift>=0);
  TrailingZeros:=TrailingZeros and ((Base2Mantissa and ((TPasDblStrUtilsUInt64(1) shl (Shift-1))-1))=0);
  LastRemovedBit:=(Base2Mantissa shr (Shift-1)) and 1;
- RoundUp:=ExtraRoundUp or ((LastRemovedBit<>0) and ((not TrailingZeros) or (((Base2Mantissa shr Shift) and 1)<>0)));
+ RoundUp:=(LastRemovedBit<>0) and ((not TrailingZeros) or (((Base2Mantissa shr Shift) and 1)<>0));
  IEEEMantissa:=(Base2Mantissa shr Shift)+TPasDblStrUtilsUInt64(ord(RoundUp) and 1);
  Assert(IEEEMantissa<=(TPasDblStrUtilsUInt64(1) shl (DOUBLE_MANTISSA_BITS+1)));
  IEEEMantissa:=IEEEMantissa and ((TPasDblStrUtilsUInt64(1) shl DOUBLE_MANTISSA_BITS)-1);
