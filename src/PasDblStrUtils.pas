@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2021-06-04-16-07-0000                       *
+ *                        Version 2021-06-04-17-15-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -59,6 +59,8 @@
  {$endif}
  {$ifdef cpuamd64}
   {$asmmode intel}
+  {$define cpux86_64}
+  {$define cpux64}
  {$endif}
  {$ifdef FPC_LITTLE_ENDIAN}
   {$define LITTLE_ENDIAN}
@@ -105,6 +107,10 @@
  {$define LITTLE_ENDIAN}
  {$ifndef cpu64}
   {$define cpu32}
+ {$endif}
+ {$ifdef cpux64}
+  {$define cpuamd64}
+  {$define cpux86_64}
  {$endif}
  {$define HAS_TYPE_EXTENDED}
  {$define HAS_TYPE_DOUBLE}
@@ -766,7 +772,8 @@ type TPasDblStrUtilsUInt128=packed record
        class operator GreaterThanOrEqual(const a,b:TPasDblStrUtilsUInt128):boolean; {$ifdef caninline}inline;{$endif}
        class operator LessThan(const a,b:TPasDblStrUtilsUInt128):boolean; {$ifdef caninline}inline;{$endif}
        class operator LessThanOrEqual(const a,b:TPasDblStrUtilsUInt128):boolean; {$ifdef caninline}inline;{$endif}
-       class function Mul64(const a,b:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt128; static;
+       class procedure Mul64(out r:TPasDblStrUtilsUInt128;const a,b:TPasDblStrUtilsUInt64); overload; static; {$if defined(CPUx86_64)}register;{$ifend}
+       class function Mul64(const a,b:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt128; overload; static; {$if defined(CPUx86_64)}register;{$ifend}
        class operator Multiply(const a,b:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128;
        class procedure BinaryDivMod128(Dividend,Divisor:TPasDblStrUtilsUInt128;out Quotient,Remainder:TPasDblStrUtilsUInt128); static;
        class procedure BinaryDivMod64(const Dividend:TPasDblStrUtilsUInt128;const Divisor:TPasDblStrUtilsUInt64;out Quotient:TPasDblStrUtilsUInt128;out Remainder:TPasDblStrUtilsUInt64); static;
@@ -968,7 +975,26 @@ begin
  result:=(a.Hi<=b.Hi) or ((a.Hi=b.Hi) and (a.Lo<=b.Lo));
 end;
 
-class function TPasDblStrUtilsUInt128.Mul64(const a,b:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt128;
+class procedure TPasDblStrUtilsUInt128.Mul64(out r:TPasDblStrUtilsUInt128;const a,b:TPasDblStrUtilsUInt64); {$if defined(CPUx86_64)}assembler; register; {$ifdef fpc}nostackframe;{$endif}
+asm
+{$ifndef fpc}
+ .noframe
+{$endif}
+{$if defined(Windows)}
+ // Win64 ABI in-order: rcx rdx r8 r9
+ mov rax,rdx
+ imul r8
+ mov qword ptr [rcx],rax
+ mov qword ptr [rcx+8],rdx
+{$else}
+ // SysV ABI in-order: rdi rsi rdx rcx r8 r9
+ mov rax,rsi
+ imul rdx
+ mov qword ptr [rdi],rax
+ mov qword ptr [rdi+8],rdx
+{$ifend}
+end;
+{$else}
 var u0,u1,v0,v1,t,w0,w1,w2:TPasDblStrUtilsUInt64;
 begin
  u1:=a shr 32;
@@ -984,10 +1010,48 @@ begin
  result.Hi:=((u1*v1)+w2)+(t shr 32);
  result.Lo:=(t shl 32)+w0;
 end;
+{$ifend}
+
+class function TPasDblStrUtilsUInt128.Mul64(const a,b:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt128; {$if defined(CPUx86_64)}assembler; register; {$ifdef fpc}nostackframe;{$endif}
+asm
+{$ifndef fpc}
+ .noframe
+{$endif}
+{$if defined(Windows)}
+ // Win64 ABI in-order: rcx rdx r8 r9
+ mov rax,rdx
+ imul r8
+ mov qword ptr [rcx],rax
+ mov qword ptr [rcx+8],rdx
+{$else}
+ // SysV ABI in-order: rdi rsi rdx rcx r8 r9
+ mov rax,rsi
+ imul rdx
+ mov qword ptr [rdi],rax
+ mov qword ptr [rdi+8],rdx
+{$ifend}
+end;
+{$else}
+var u0,u1,v0,v1,t,w0,w1,w2:TPasDblStrUtilsUInt64;
+begin
+ u1:=a shr 32;
+ u0:=a and TPasDblStrUtilsUInt64($ffffffff);
+ v1:=b shr 32;
+ v0:=b and TPasDblStrUtilsUInt64($ffffffff);
+ t:=u0*v0;
+ w0:=t and TPasDblStrUtilsUInt64($ffffffff);
+ t:=(u1*v0)+(t shr 32);
+ w1:=t and TPasDblStrUtilsUInt64($ffffffff);
+ w2:=t shr 32;
+ t:=(u0*v1)+w1;
+ result.Hi:=((u1*v1)+w2)+(t shr 32);
+ result.Lo:=(t shl 32)+w0;
+end;
+{$ifend}
 
 class operator TPasDblStrUtilsUInt128.Multiply(const a,b:TPasDblStrUtilsUInt128):TPasDblStrUtilsUInt128;
 begin
- result:=Mul64(a.Lo,b.Lo);
+ Mul64(result,a.Lo,b.Lo);
  inc(result.Hi,(a.Hi*b.Lo)+(a.Lo*b.Hi));
 end;
 
@@ -1951,7 +2015,7 @@ begin
  result:=true;
 end;
 
-{$if defined(CPU64) or defined(CPUx64) or defined(CPUx8664) or defined(CPUx86_64) or defined(CPUAArch64)}
+{$if defined(CPU64) or defined(CPUx86_64) or defined(CPUAArch64)}
 function Div5(const x:TPasDblStrUtilsUInt64):TPasDblStrUtilsUInt64; {$ifdef caninline}inline;{$endif}
 begin
  result:=x div 5;
@@ -3334,12 +3398,12 @@ begin
 {$ifend}
   LeadingZeros:=CLZQWord(aBase10Mantissa);
   aBase10Mantissa:=aBase10Mantissa shl LeadingZeros;
-  Product:=TPasDblStrUtilsUInt128.Mul64(aBase10Mantissa,FactorMantissa);
+  TPasDblStrUtilsUInt128.Mul64(Product,aBase10Mantissa,FactorMantissa);
   Upper:=Product.Hi;
   Lower:=Product.Lo;
   if ((Upper and $1ff)=$1ff) and ((Lower+aBase10Mantissa)<Lower) then begin
    FactorMantissaLow:=Mantissa128[aBase10Exponent];
-   Product:=TPasDblStrUtilsUInt128.Mul64(aBase10Mantissa,FactorMantissaLow);
+   TPasDblStrUtilsUInt128.Mul64(Product,aBase10Mantissa,FactorMantissaLow);
    ProductLow:=Product.Lo;
    ProductMiddle2:=Product.Hi;
    ProductMiddle1:=Lower;
