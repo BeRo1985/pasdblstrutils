@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2021-06-06-20-47-0000                       *
+ *                        Version 2021-06-07-00-57-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -428,8 +428,8 @@ type PPasDblStrUtilsInt8=^TPasDblStrUtilsInt8;
 function FallbackStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aRoundingMode:TPasDblStrUtilsRoundingMode=rmNearest;const aOK:PPasDblStrUtilsBoolean=nil;const aBase:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsDouble; overload;
 function FallbackStringToDouble(const aStringValue:TPasDblStrUtilsString;const aRoundingMode:TPasDblStrUtilsRoundingMode=rmNearest;const aOK:PPasDblStrUtilsBoolean=nil;const aBase:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsDouble; overload;
 
-function AlgorithmMStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aOK:PPasDblStrUtilsBoolean=nil):TPasDblStrUtilsDouble; overload;
-function AlgorithmMStringToDouble(const aStringValue:TPasDblStrUtilsString;const aOK:PPasDblStrUtilsBoolean=nil):TPasDblStrUtilsDouble; overload;
+function AlgorithmMStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aOK:PPasDblStrUtilsBoolean=nil;const aBase:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsDouble; overload;
+function AlgorithmMStringToDouble(const aStringValue:TPasDblStrUtilsString;const aOK:PPasDblStrUtilsBoolean=nil;const aBase:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsDouble; overload;
 
 function EiselLemireStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aOK:PPasDblStrUtilsBoolean=nil):TPasDblStrUtilsDouble; overload;
 function EiselLemireStringToDouble(const aStringValue:TPasDblStrUtilsString;const aOK:PPasDblStrUtilsBoolean=nil):TPasDblStrUtilsDouble; overload;
@@ -3394,7 +3394,7 @@ begin
  result:=FallbackStringToDouble(@aStringValue[1],length(aStringValue),aRoundingMode,aOK,aBase);
 end;
 
-function AlgorithmMStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aOK:PPasDblStrUtilsBoolean=nil):TPasDblStrUtilsDouble; overload;
+function AlgorithmMStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aOK:PPasDblStrUtilsBoolean=nil;const aBase:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsDouble; overload;
 const DOUBLE_MANTISSA_BITS=52;
       DOUBLE_EXPONENT_BITS=11;
       DOUBLE_EXPONENT_BIAS=1023;
@@ -3408,7 +3408,67 @@ const DOUBLE_MANTISSA_BITS=52;
       RoundNone=0;
       RoundByRemainder=1;
       RoundUnderflow=2;
-      Power10Table:array[1..9] of TPasDblStrUtilsUInt32=
+type TPowerTable=array[1..16] of TPasDblStrUtilsUInt32;
+     PPowerTable=^TPowerTable;
+     TAllowedChars=set of TPasDblStrUtilsChar;
+const Power2Table:TPowerTable=
+       (
+        2,
+        4,
+        8,
+        16,
+        32,
+        64,
+        128,
+        256,
+        512,
+        1024,
+        2048,
+        4096,
+        8192,
+        16384,
+        32768,
+        65536
+       );
+      Power4Table:TPowerTable=
+       (
+        4,
+        16,
+        64,
+        256,
+        1024,
+        4096,
+        16384,
+        65536,
+        262144,
+        1048576,
+        4194304,
+        16777216,
+        0,
+        0,
+        0,
+        0
+       );
+      Power8Table:TPowerTable=
+       (
+        8,
+        64,
+        512,
+        4096,
+        32768,
+        262144,
+        2097152,
+        16777216,
+        134217728,
+        1073741824,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       );
+      Power10Table:TPowerTable=
        (
         10,
         100,
@@ -3418,22 +3478,52 @@ const DOUBLE_MANTISSA_BITS=52;
         1000000,
         10000000,
         100000000,
-        1000000000
+        1000000000,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
        );
-var Index,Position,Base10MantissaParserBufferSize,RoundMode,Exponent,
-    Cmp,Log2U,Log2V,UShift,VShift,Log2Ratio,BitLen,LeastSignificantBit:TPasDblStrUtilsInt32;
-    Base10Mantissa,Remainder,MinSig,MaxSig,u,v,x:TPasDblStrUtilsBigUnsignedInteger;
-    Base10MantissaParserBuffer:TPasDblStrUtilsUInt32;
-    Base10Exponent,ExponentValue,IEEEExponent:TPasDblStrUtilsInt64;
+      Power16Table:TPowerTable=
+       (
+        $10,
+        $100,
+        $1000,
+        $10000,
+        $100000,
+        $1000000,
+        $10000000,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+       );
+var Index,Position,
+    BaseMantissaParserBufferSize,BaseMantissaParserBufferLimit,
+    RoundMode,Exponent,Cmp,Log2U,Log2V,UShift,VShift,Log2Ratio,
+    BitLen,LeastSignificantBit:TPasDblStrUtilsInt32;
+    BaseMantissa,Remainder,MinSig,MaxSig,u,v,x:TPasDblStrUtilsBigUnsignedInteger;
+    BaseMantissaParserBuffer,Base:TPasDblStrUtilsUInt32;
+    BaseExponent,ExponentValue,IEEEExponent:TPasDblStrUtilsInt64;
     IEEEMantissa:TPasDblStrUtilsUInt64;
     HasDigits,SignedMantissa,SignedExponent,Underflow,Even:boolean;
     c:TPasDblStrUtilsChar;
+    PowerTable:PPowerTable;
+    AllowedChars:TAllowedChars;
 begin
 
  SignedMantissa:=false;
  Position:=0;
- Base10Mantissa:=0;
- Base10Exponent:=0;
+ BaseMantissa:=0;
+ BaseExponent:=0;
 
  while (Position<aStringLength) and (aStringValue[Position] in [#0..#32]) do begin
   inc(Position);
@@ -3472,60 +3562,215 @@ begin
   end;
  end;
 
- Base10MantissaParserBuffer:=0;
- Base10MantissaParserBufferSize:=0;
+ if ((Position+3)<aStringLength) and
+    (aStringValue[Position] in ['q','Q','s','S']) and
+    (aStringValue[Position+1] in ['n','N']) and
+    (aStringValue[Position+2] in ['a','A']) and
+    (aStringValue[Position+3] in ['n','N']) then begin
+  if aStringValue[Position] in ['q','Q'] then begin
+   if SignedMantissa then begin
+    result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($fff8000000000000)); // -QNaN
+   end else begin
+    result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // +QNaN
+   end;
+  end else begin
+   if SignedMantissa then begin
+    result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($ffffffffffffffff)); // -SNaN
+   end else begin
+    result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7fffffffffffffff)); // +SNaN
+   end;
+  end;
+  if assigned(aOK) then begin
+   aOK^:=true;
+  end;
+  exit;
+ end;
 
- HasDigits:=(Position<aStringLength) and (aStringValue[Position] in ['0'..'9']);
+ if aBase<0 then begin
+  if ((Position+1)<aStringLength) and
+     (aStringValue[Position]='0') and
+     (aStringValue[Position+1] in ['b','B','y','Y','o','O','q','Q','d','D','t','T','x','X','h','H']) then begin
+   case aStringValue[Position+1] of
+    'b','B','y','Y':begin
+     Base:=2;
+    end;
+    'o','O','q','Q':begin
+     Base:=8;
+    end;
+    'd','D','t','T':begin
+     Base:=10;
+    end;
+    'x','X','h','H':begin
+     Base:=16;
+    end;
+    else begin
+     Base:=10;
+    end;
+   end;
+   inc(Position,2);
+  end else if (Position<aStringLength) and
+              (aStringValue[Position] in ['%','&','$']) then begin
+   case aStringValue[Position] of
+    '%':begin
+     Base:=2;
+    end;
+    '&':begin
+     Base:=8;
+    end;
+    '$':begin
+     Base:=16;
+    end;
+    else begin
+     Base:=10;
+    end;
+   end;
+   inc(Position);
+  end else begin
+   Base:=10;
+  end;
+ end else begin
+  Base:=aBase;
+ end;
+
+ BaseMantissaParserBuffer:=0;
+ BaseMantissaParserBufferSize:=0;
+
+ case Base of
+  2:begin
+   PowerTable:=@Power2Table;
+   AllowedChars:=['0'..'1'];
+   BaseMantissaParserBufferLimit:=16;
+  end;
+  4:begin
+   PowerTable:=@Power4Table;
+   AllowedChars:=['0'..'3'];
+   BaseMantissaParserBufferLimit:=12;
+  end;
+  8:begin
+   PowerTable:=@Power8Table;
+   AllowedChars:=['0'..'7'];
+   BaseMantissaParserBufferLimit:=10;
+  end;
+  10:begin
+   PowerTable:=@Power10Table;
+   AllowedChars:=['0'..'9'];
+   BaseMantissaParserBufferLimit:=9;
+  end;
+  16:begin
+   PowerTable:=@Power16Table;
+   AllowedChars:=['0'..'9','a'..'f','A'..'F'];
+   BaseMantissaParserBufferLimit:=7;
+  end;
+  else begin
+   result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
+   if assigned(aOK) then begin
+    aOK^:=false;
+   end;
+   exit;
+  end;
+ end;
+
+ HasDigits:=(Position<aStringLength) and (aStringValue[Position] in AllowedChars);
  if HasDigits then begin
   while Position<aStringLength do begin
    c:=aStringValue[Position];
-   case c of
-    '0'..'9':begin
-     Base10MantissaParserBuffer:=(Base10MantissaParserBuffer*10)+TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[Position]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('0'));
-     inc(Base10MantissaParserBufferSize);
-     if Base10MantissaParserBufferSize>=High(Power10Table) then begin
-      Base10Mantissa.MulAdd(Power10Table[Base10MantissaParserBufferSize],Base10MantissaParserBuffer);
-      Base10MantissaParserBufferSize:=0;
-      Base10MantissaParserBuffer:=0;
+   if c in AllowedChars then begin
+    case c of
+     '0'..'9':begin
+      BaseMantissaParserBuffer:=(BaseMantissaParserBuffer*Base)+TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[Position]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('0'));
+      inc(BaseMantissaParserBufferSize);
+      if BaseMantissaParserBufferSize>=BaseMantissaParserBufferLimit then begin
+       BaseMantissa.MulAdd(PowerTable^[BaseMantissaParserBufferSize],BaseMantissaParserBuffer);
+       BaseMantissaParserBufferSize:=0;
+       BaseMantissaParserBuffer:=0;
+      end;
+      inc(Position);
      end;
-     inc(Position);
+     'a'..'z':begin
+      BaseMantissaParserBuffer:=(BaseMantissaParserBuffer*Base)+(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[Position]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('a'))+$a);
+      inc(BaseMantissaParserBufferSize);
+      if BaseMantissaParserBufferSize>=BaseMantissaParserBufferLimit then begin
+       BaseMantissa.MulAdd(PowerTable^[BaseMantissaParserBufferSize],BaseMantissaParserBuffer);
+       BaseMantissaParserBufferSize:=0;
+       BaseMantissaParserBuffer:=0;
+      end;
+      inc(Position);
+     end;
+     'A'..'Z':begin
+      BaseMantissaParserBuffer:=(BaseMantissaParserBuffer*Base)+(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[Position]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('A'))+$a);
+      inc(BaseMantissaParserBufferSize);
+      if BaseMantissaParserBufferSize>=BaseMantissaParserBufferLimit then begin
+       BaseMantissa.MulAdd(PowerTable^[BaseMantissaParserBufferSize],BaseMantissaParserBuffer);
+       BaseMantissaParserBufferSize:=0;
+       BaseMantissaParserBuffer:=0;
+      end;
+      inc(Position);
+     end;
+     else begin
+      break;
+     end;
     end;
-    else begin
-     break;
-    end;
+   end else begin
+    break;
    end;
   end;
  end;
 
  if (Position<aStringLength) and (aStringValue[Position]='.') then begin
   inc(Position);
-  if (Position<aStringLength) and (aStringValue[Position] in ['0'..'9']) then begin
+  if (Position<aStringLength) and (aStringValue[Position] in AllowedChars) then begin
    HasDigits:=true;
    while Position<aStringLength do begin
     c:=aStringValue[Position];
-    case c of
-     '0'..'9':begin
-      Base10MantissaParserBuffer:=(Base10MantissaParserBuffer*10)+TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[Position]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('0'));
-      inc(Base10MantissaParserBufferSize);
-      if Base10MantissaParserBufferSize>=High(Power10Table) then begin
-       Base10Mantissa.MulAdd(Power10Table[Base10MantissaParserBufferSize],Base10MantissaParserBuffer);
-       Base10MantissaParserBufferSize:=0;
-       Base10MantissaParserBuffer:=0;
+    if c in AllowedChars then begin
+     case c of
+      '0'..'9':begin
+       BaseMantissaParserBuffer:=(BaseMantissaParserBuffer*Base)+TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[Position]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('0'));
+       inc(BaseMantissaParserBufferSize);
+       if BaseMantissaParserBufferSize>=BaseMantissaParserBufferLimit then begin
+        BaseMantissa.MulAdd(PowerTable^[BaseMantissaParserBufferSize],BaseMantissaParserBuffer);
+        BaseMantissaParserBufferSize:=0;
+        BaseMantissaParserBuffer:=0;
+       end;
+       inc(Position);
+       dec(BaseExponent);
       end;
-      inc(Position);
-      dec(Base10Exponent);
+      'a'..'z':begin
+       BaseMantissaParserBuffer:=(BaseMantissaParserBuffer*Base)+(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[Position]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('a'))+$a);
+       inc(BaseMantissaParserBufferSize);
+       if BaseMantissaParserBufferSize>=BaseMantissaParserBufferLimit then begin
+        BaseMantissa.MulAdd(PowerTable^[BaseMantissaParserBufferSize],BaseMantissaParserBuffer);
+        BaseMantissaParserBufferSize:=0;
+        BaseMantissaParserBuffer:=0;
+       end;
+       inc(Position);
+       dec(BaseExponent);
+      end;
+      'A'..'Z':begin
+       BaseMantissaParserBuffer:=(BaseMantissaParserBuffer*Base)+(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[Position]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('A'))+$a);
+       inc(BaseMantissaParserBufferSize);
+       if BaseMantissaParserBufferSize>=BaseMantissaParserBufferLimit then begin
+        BaseMantissa.MulAdd(PowerTable^[BaseMantissaParserBufferSize],BaseMantissaParserBuffer);
+        BaseMantissaParserBufferSize:=0;
+        BaseMantissaParserBuffer:=0;
+       end;
+       inc(Position);
+       dec(BaseExponent);
+      end;
+      else begin
+       break;
+      end;
      end;
-     else begin
-      break;
-     end;
+    end else begin
+     break;
     end;
    end;
   end;
  end;
 
- if Base10MantissaParserBufferSize>0 then begin
-  Base10Mantissa.MulAdd(Power10Table[Base10MantissaParserBufferSize],Base10MantissaParserBuffer);
-  Base10MantissaParserBufferSize:=0;
+ if BaseMantissaParserBufferSize>0 then begin
+  BaseMantissa.MulAdd(PowerTable^[BaseMantissaParserBufferSize],BaseMantissaParserBuffer);
+  BaseMantissaParserBufferSize:=0;
  end;
 
  if not HasDigits then begin
@@ -3536,7 +3781,7 @@ begin
   exit;
  end;
 
- if (Position<aStringLength) and (aStringValue[Position] in ['e','E']) then begin
+ if (Position<aStringLength) and (aStringValue[Position] in ['e','E','p','P']) then begin
   inc(Position);
   if (Position<aStringLength) and (aStringValue[Position] in ['+','-']) then begin
    SignedExponent:=aStringValue[Position]='-';
@@ -3551,9 +3796,9 @@ begin
     inc(Position);
    until (Position>=aStringLength) or not (aStringValue[Position] in ['0'..'9']);
    if SignedExponent then begin
-    dec(Base10Exponent,ExponentValue);
+    dec(BaseExponent,ExponentValue);
    end else begin
-    inc(Base10Exponent,ExponentValue);
+    inc(BaseExponent,ExponentValue);
    end;
   end else begin
    result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
@@ -3564,8 +3809,8 @@ begin
   end;
  end;
 
- if Base10Mantissa.IsZero then begin
-  Base10Exponent:=0;
+ if BaseMantissa.IsZero then begin
+  BaseExponent:=0;
  end;
 
  if Position>=aStringLength then begin
@@ -3573,14 +3818,32 @@ begin
   MinSig:=MIN_SIG;
   MaxSig:=MAX_SIG;
 
-  u:=Base10Mantissa;
+  u:=BaseMantissa;
   v:=1;
 
-  if Base10Exponent<>0 then begin
-   if Base10Exponent>0 then begin
-    u.MultiplyPower10(Base10Exponent);
-   end else begin
-    v.MultiplyPower10(-Base10Exponent);
+  if BaseExponent<>0 then begin
+   case Base of
+    2:begin
+     if BaseExponent>0 then begin
+      u.ShiftLeft(BaseExponent);
+     end else begin
+      v.ShiftLeft(-BaseExponent);
+     end;
+    end;
+    10:begin
+     if BaseExponent>0 then begin
+      u.MultiplyPower10(BaseExponent);
+     end else begin
+      v.MultiplyPower10(-BaseExponent);
+     end;
+    end;
+    else begin
+     if BaseExponent>0 then begin
+      u.Mul(TPasDblStrUtilsBigUnsignedInteger.Power(Base,BaseExponent));
+     end else begin
+      v.Mul(TPasDblStrUtilsBigUnsignedInteger.Power(Base,-BaseExponent));
+     end;
+    end;
    end;
   end;
 
@@ -3715,9 +3978,9 @@ begin
 
 end;
 
-function AlgorithmMStringToDouble(const aStringValue:TPasDblStrUtilsString;const aOK:PPasDblStrUtilsBoolean=nil):TPasDblStrUtilsDouble; overload;
+function AlgorithmMStringToDouble(const aStringValue:TPasDblStrUtilsString;const aOK:PPasDblStrUtilsBoolean=nil;const aBase:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsDouble; overload;
 begin
- result:=AlgorithmMStringToDouble(@aStringValue[1],length(aStringValue),aOK);
+ result:=AlgorithmMStringToDouble(@aStringValue[1],length(aStringValue),aOK,aBase);
 end;
 
 const FASTFLOAT_SMALLEST_POWER=-325;
@@ -5557,9 +5820,13 @@ begin
     end;
    end;
 
+  end;
+
+  if aRoundingMode=rmNearest then begin
+
    begin
     // Slow path
-    result:=AlgorithmMStringToDouble(aStringValue,aStringLength,@TemporaryOK);
+    result:=AlgorithmMStringToDouble(aStringValue,aStringLength,@TemporaryOK,aBase);
     if TemporaryOK then begin
      break;
     end;
