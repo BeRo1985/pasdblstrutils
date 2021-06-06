@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2021-06-06-18-51-0000                       *
+ *                        Version 2021-06-06-19-52-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -4375,7 +4375,7 @@ begin
  if assigned(aSuccess) then begin
   aSuccess^:=false;
  end;
- if ({$if defined(PasDblStrUtilsDenormalsAreNotZeros) or (((not defined(fpc)) and defined(cpu386)) or (defined(fpc) and defined(fpux87)))}(-22){$else}0{$ifend}<=aBase10Exponent) and
+ if ({$if defined(PasDblStrUtilsDenormalsAreNotZeros)}(-22){$else}0{$ifend}<=aBase10Exponent) and
     (aBase10Exponent<=22) and
     (aBase10Mantissa<=9007199254740991)
     {$ifndef PasDblStrUtilsNoFPUModeCheck}
