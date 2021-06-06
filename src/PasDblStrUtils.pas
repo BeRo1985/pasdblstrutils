@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2021-06-06-16-53-0000                       *
+ *                        Version 2021-06-06-17-01-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -1057,13 +1057,13 @@ begin
  end;
  Carry:=0;
  for Index:=0 to CommonCount-1 do begin
-  Temporary:=Words[Index]+aWith.Words[Index]+Carry;
+  Temporary:=TPasDblStrUtilsUInt64(TPasDblStrUtilsUInt64(Words[Index])+TPasDblStrUtilsUInt64(aWith.Words[Index])+TPasDblStrUtilsUInt64(Carry));
   Words[Index]:=Temporary and TPasDblStrUtilsUInt32($ffffffff);
   Carry:=Temporary shr 32;
  end;
  Index:=CommonCount;
  while (Carry<>0) and (Index<Count) do begin
-  Temporary:=Words[Index]+Carry;
+  Temporary:=TPasDblStrUtilsUInt64(TPasDblStrUtilsUInt64(Words[Index])+TPasDblStrUtilsUInt64(Carry));
   Words[Index]:=Temporary and TPasDblStrUtilsUInt32($ffffffff);
   Carry:=Temporary shr 32;
   inc(Index);
@@ -1091,7 +1091,7 @@ begin
  Index:=0;
  Carry:=aWith;
  while (Carry<>0) and (Index<Count) do begin
-  Temporary:=Words[Index]+Carry;
+  Temporary:=TPasDblStrUtilsUInt64(TPasDblStrUtilsUInt64(Words[Index])+TPasDblStrUtilsUInt64(Carry));
   Words[Index]:=Temporary and TPasDblStrUtilsUInt32($ffffffff);
   Carry:=Temporary shr 32;
   inc(Index);
@@ -1136,13 +1136,13 @@ begin
  end;
  Borrow:=0;
  for Index:=0 to CommonCount-1 do begin
-  Temporary:=(Words[Index]-aWith.Words[Index])-Borrow;
+  Temporary:=TPasDblStrUtilsUInt64(TPasDblStrUtilsUInt64(Words[Index])-TPasDblStrUtilsUInt64(aWith.Words[Index]))-TPasDblStrUtilsUInt64(Borrow);
   Words[Index]:=Temporary and TPasDblStrUtilsUInt32($ffffffff);
   Borrow:=Temporary shr 63;
  end;
  Index:=CommonCount;
  while (Borrow<>0) and (Index<Count) do begin
-  Temporary:=Words[Index]-Borrow;
+  Temporary:=TPasDblStrUtilsUInt64(Words[Index])-TPasDblStrUtilsUInt64(Borrow);
   Words[Index]:=Temporary and TPasDblStrUtilsUInt32($ffffffff);
   Borrow:=Temporary shr 63;
   inc(Index);
@@ -1158,7 +1158,7 @@ begin
  Index:=0;
  Borrow:=aWith;
  while (Borrow<>0) and (Index<Count) do begin
-  Temporary:=Words[Index]-Borrow;
+  Temporary:=TPasDblStrUtilsUInt64(TPasDblStrUtilsUInt64(Words[Index])-TPasDblStrUtilsUInt64(Borrow));
   Words[Index]:=Temporary and TPasDblStrUtilsUInt32($ffffffff);
   Borrow:=Temporary shr 63;
   inc(Index);
