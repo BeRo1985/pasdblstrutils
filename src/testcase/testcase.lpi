@@ -56,6 +56,9 @@
         <DebugInfoType Value="dsDwarf2Set"/>
       </Debugging>
     </Linking>
+    <Other>
+      <CustomOptions Value="-dPasDblStrUtilsNoFPUModeCheck"/>
+    </Other>
   </CompilerOptions>
   <Debugging>
     <Exceptions>

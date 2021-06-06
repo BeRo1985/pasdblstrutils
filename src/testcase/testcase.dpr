@@ -6,7 +6,9 @@ program testcase;
  {$apptype console}
 {$ifend}
 
-uses SysUtils,Classes,Math,PasDblStrUtils in '..\PasDblStrUtils.pas';
+uses {$if defined(Win32) or defined(Win64)}Windows,{$ifend}
+     SysUtils,Classes,Math,
+     PasDblStrUtils in '..\PasDblStrUtils.pas';
 
 var TestDataPath:string;
 
@@ -360,7 +362,7 @@ begin
     InputData:='';
     try
 
-     Stream:=TFileStream.Create(FileName,fmOpenRead or fmShareDenyRead);
+     Stream:=TFileStream.Create(FileName,fmOpenRead);
      try
       Stream.Seek(0,soBeginning);
       SetLength(InputData,Stream.Size);
@@ -487,7 +489,7 @@ begin
     InputData:='';
     try
 
-     Stream:=TFileStream.Create(FileName,fmOpenRead or fmShareDenyRead);
+     Stream:=TFileStream.Create(FileName,fmOpenRead);
      try
       Stream.Seek(0,soBeginning);
       SetLength(InputData,Stream.Size);
@@ -620,26 +622,18 @@ begin
  until ValueUI64=0;
 end;
 
+{
 var v:Double;
-    u:UInt64 absolute v;
+    u:UInt64 absolute v;//}
 begin
 
 {
-//                 2.2250738585072009E-308
-// v:=ConvertStringToDouble('0.608037575777344851957195714931');//'322145239910271471e-180');//5708990770823839207320493820740630171355185152');
- v:=EiselLemireStringToDouble('12.9');
-// v:=FallbackStringToDouble('322145239910271471e-180');//5708990770823839207320493820740630171355185152');
-//v:=ConvertStringToDouble('664110730935035048e-67');//5708990770823839207320493820740630171355185152');
-//v:=FallbackStringToDouble('2.12');//5708990770823839207320493820740630171355185152');
+ v:=AlgorithmMStringToDouble(' 1.1042006635747402050622989e-291');
  writeln(v:32:16,' ',v,' ',IntToHex(u));
  writeln;
-// v:=0.608037575777344851957195714931;//
- v:=570899;//322145239910271471e-180;
-// v:=664110730935035048e-67;//
-// v:=5708990770823839207320493820740630171355185152;
+ v:= 1.1042006635747402050622989e-291;
  writeln(v:32:16,' ',v,' ',IntToHex(u));
- v:=RyuStringToDouble(RyuDoubleToString(v));
- writeln(v:32:16,' ',v,' ',IntToHex(u));
+ writeln;
  readln;
  exit;     //}
 
