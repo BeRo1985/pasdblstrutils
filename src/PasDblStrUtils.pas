@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2021-06-06-19-52-0000                       *
+ *                        Version 2021-06-06-20-47-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -4374,10 +4374,9 @@ var FactorMantissa,Upper,Lower,FactorMantissaLow,
 begin
  if assigned(aSuccess) then begin
   aSuccess^:=false;
- end;
- if ({$if defined(PasDblStrUtilsDenormalsAreNotZeros)}(-22){$else}0{$ifend}<=aBase10Exponent) and
-    (aBase10Exponent<=22) and
-    (aBase10Mantissa<=9007199254740991)
+ end; 
+{$if defined(CPUx86_64) or defined(CPUAArch64)}
+ if ({$if defined(PasDblStrUtilsDenormalsAreNotZeros)}(-22){$else}0{$ifend}<=aBase10Exponent) and (aBase10Exponent<=22) and (aBase10Mantissa<=9007199254740991)
     {$ifndef PasDblStrUtilsNoFPUModeCheck}
      and (GetRoundMode=rmNearest) and (GetPrecisionMode in [pmDouble,pmExtended])
     {$endif} then begin
@@ -4395,6 +4394,7 @@ begin
   end;
   exit;
  end;
+{$ifend}
  if aBase10Mantissa=0 then begin
   if aNegative then begin
    result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($8000000000000000));
