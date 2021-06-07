@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2021-06-07-00-57-0000                       *
+ *                        Version 2021-06-07-12-09-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -3810,7 +3810,11 @@ begin
  end;
 
  if BaseMantissa.IsZero then begin
-  BaseExponent:=0;
+  result:=UInt64Bits2Double(TPasDblStrUtilsUInt64(TPasDblStrUtilsUInt64(ord(SignedMantissa) and 1) shl 63)); // +/- 0
+  if assigned(aOK) then begin
+   aOK^:=true;
+  end;
+  exit;
  end;
 
  if Position>=aStringLength then begin
