@@ -921,9 +921,9 @@ begin
    NewCount:=Count+1;
    if length(Words)<NewCount then begin
     SetLength(Words,NewCount+((NewCount+1) shr 1));
-    for Index:=Count to NewCount-1 do begin
-     Words[Index]:=0;
-    end;
+   end;
+   for Index:=Count to NewCount-1 do begin
+    Words[Index]:=0;
    end;
    Count:=NewCount;
   end;
@@ -1091,7 +1091,7 @@ begin
   end;
  end;
  Count:=NewCount;
- if Count>aWith.Count then begin
+ if aWith.Count<Count then begin
   CommonCount:=aWith.Count;
  end else begin
   CommonCount:=Count;
@@ -1290,7 +1290,6 @@ procedure TPasDblStrUtilsBigUnsignedInteger.DivMod(const aDivisor:TPasDblStrUtil
 var Index,BitLen,WordIndex,BitIndex,Cmp:TPasDblStrUtilsInt32;
     QuotientIsZero:boolean;
 begin
- aRemainder.Dump;
  Cmp:=Compare(aDivisor);
  if Cmp<0 then begin
   aQuotient.SetValue(0);
@@ -1320,8 +1319,6 @@ begin
    end;
   end;
  end;
- aRemainder.Dump;
- readln;
 end;
 
 class function TPasDblStrUtilsBigUnsignedInteger.Power(const aBase,aExponent:TPasDblStrUtilsUInt32):TPasDblStrUtilsBigUnsignedInteger;

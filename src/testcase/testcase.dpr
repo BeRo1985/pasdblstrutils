@@ -654,7 +654,6 @@ begin
   Start:=GetTickCount64;
   for TestCounter:=1 to TestCount do begin
    ConvertStringToDouble(TestInput);
-   readln;
   end;
   Stop:=GetTickCount64;
   WriteLn('PasDblStrUtils.ConvertStringToDouble: ',Stop-Start:8,' ms');
@@ -678,8 +677,6 @@ begin
   WriteLn('                          StrToFloat: ',Stop-Start:8,' ms');
 
   WriteLn;
-
-  readln;
 
  end;
 end;
