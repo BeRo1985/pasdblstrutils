@@ -762,8 +762,11 @@ type TPasDblStrUtilsBigUnsignedInteger=record
        class operator Explicit(const a:TPasDblStrUtilsBigUnsignedInteger):TPasDblStrUtilsUInt64; {$ifdef caninline}inline;{$endif}
        procedure Clear;
        procedure Trim;
+       procedure Dump;
        function Bits:TPasDblStrUtilsInt32;
        function IsZero:boolean;
+       procedure SetValue(const aWith:TPasDblStrUtilsBigUnsignedInteger); overload;
+       procedure SetValue(const aWith:TPasDblStrUtilsUInt32); overload;
        procedure ShiftLeftByOne; overload;
        procedure ShiftLeft(const aBits:TPasDblStrUtilsUInt32); overload;
        procedure ShiftRightByOne; overload;
@@ -851,6 +854,15 @@ begin
  end;
 end;
 
+procedure TPasDblStrUtilsBigUnsignedInteger.Dump;
+var Index:TPasDblStrUtilsInt32;
+begin
+ for Index:=0 to Count-1 do begin
+  Write(Words[Index],' ');
+ end;
+ WriteLn;
+end;
+
 function TPasDblStrUtilsBigUnsignedInteger.Bits:TPasDblStrUtilsInt32;
 var Index:TPasDblStrUtilsInt32;
 begin
@@ -875,6 +887,32 @@ begin
  end;
 end;
 
+procedure TPasDblStrUtilsBigUnsignedInteger.SetValue(const aWith:TPasDblStrUtilsBigUnsignedInteger);
+begin
+ Count:=aWith.Count;
+ if length(Words)<Count then begin
+  SetLength(Words,Count+((Count+1) shr 1));
+ end;
+ if Count>0 then begin
+  Move(aWith.Words[0],Words[0],Count*SizeOf(TWord));
+ end else begin
+  if length(Words)<1 then begin
+   SetLength(Words,1);
+  end;
+  Words[0]:=0;
+  Count:=1;
+ end;
+end;
+
+procedure TPasDblStrUtilsBigUnsignedInteger.SetValue(const aWith:TPasDblStrUtilsUInt32);
+begin
+ if length(Words)<1 then begin
+  SetLength(Words,1);
+ end;
+ Words[0]:=aWith;
+ Count:=1;
+end;
+
 procedure TPasDblStrUtilsBigUnsignedInteger.ShiftLeftByOne;
 var Index,NewCount:TPasDblStrUtilsInt32;
 begin
@@ -889,8 +927,10 @@ begin
    end;
    Count:=NewCount;
   end;
-  for Index:=Count-1 downto 1 do begin
-   Words[Index]:=(Words[Index] shl 1) or ((Words[Index-1] shr 31) and 1);
+  if Count>1 then begin
+   for Index:=Count-1 downto 1 do begin
+    Words[Index]:=(Words[Index] shl 1) or ((Words[Index-1] shr 31) and 1);
+   end;
   end;
   Words[0]:=Words[0] shl 1;
  end;
@@ -1030,6 +1070,7 @@ begin
   end;
   Words[Index]:=Value;
  end;
+ Trim;
 end;
 
 procedure TPasDblStrUtilsBigUnsignedInteger.Add(const aWith:TPasDblStrUtilsBigUnsignedInteger);
@@ -1112,24 +1153,11 @@ begin
 end;
 
 procedure TPasDblStrUtilsBigUnsignedInteger.Sub(const aWith:TPasDblStrUtilsBigUnsignedInteger);
-var NewCount,Index,CommonCount:TPasDblStrUtilsInt32;
+var Index,CommonCount:TPasDblStrUtilsInt32;
     Borrow:TPasDblStrUtilsUInt32;
     Temporary:TPasDblStrUtilsUInt64;
 begin
- if Count<aWith.Count then begin
-  NewCount:=aWith.Count;
- end else begin
-  NewCount:=Count;
- end;
- inc(NewCount);
- if length(Words)<NewCount then begin
-  SetLength(Words,NewCount+((NewCount+1) shr 1));
-  for Index:=Count to NewCount-1 do begin
-   Words[Index]:=0;
-  end;
- end;
- Count:=NewCount;
- if Count>aWith.Count then begin
+ if aWith.Count<Count then begin
   CommonCount:=aWith.Count;
  end else begin
   CommonCount:=Count;
@@ -1163,7 +1191,9 @@ begin
   Borrow:=Temporary shr 63;
   inc(Index);
  end;
- Trim;
+ if (Count>1) and (Words[Count-1]=0) then begin
+  dec(Count);
+ end;
 end;
 
 procedure TPasDblStrUtilsBigUnsignedInteger.Mul(const aWith:TPasDblStrUtilsUInt32);
@@ -1190,6 +1220,7 @@ begin
   end;
   Words[Index]:=Carry;
  end;
+ Trim;
 end;
 
 procedure TPasDblStrUtilsBigUnsignedInteger.Mul(const aWith:TPasDblStrUtilsBigUnsignedInteger);
@@ -1252,22 +1283,24 @@ begin
   end;
   Words[Index]:=Carry;
  end;
+ Trim;
 end;
 
 procedure TPasDblStrUtilsBigUnsignedInteger.DivMod(const aDivisor:TPasDblStrUtilsBigUnsignedInteger;var aQuotient,aRemainder:TPasDblStrUtilsBigUnsignedInteger);
 var Index,BitLen,WordIndex,BitIndex,Cmp:TPasDblStrUtilsInt32;
     QuotientIsZero:boolean;
 begin
+ aRemainder.Dump;
  Cmp:=Compare(aDivisor);
  if Cmp<0 then begin
-  aQuotient:=0;
-  aRemainder:=self;
+  aQuotient.SetValue(0);
+  aRemainder.SetValue(self);
  end else if Cmp=0 then begin
-  aQuotient:=1;
-  aRemainder:=0;
+  aQuotient.SetValue(1);
+  aRemainder.SetValue(0);
  end else begin
-  aQuotient:=0;
-  aRemainder:=0;
+  aQuotient.SetValue(0);
+  aRemainder.SetValue(0);
   QuotientIsZero:=true;
   BitLen:=Bits;
   for Index:=BitLen downto 0 do begin
@@ -1287,6 +1320,8 @@ begin
    end;
   end;
  end;
+ aRemainder.Dump;
+ readln;
 end;
 
 class function TPasDblStrUtilsBigUnsignedInteger.Power(const aBase,aExponent:TPasDblStrUtilsUInt32):TPasDblStrUtilsBigUnsignedInteger;

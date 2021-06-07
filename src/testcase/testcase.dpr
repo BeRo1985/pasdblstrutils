@@ -622,6 +622,68 @@ begin
  until ValueUI64=0;
 end;
 
+procedure Benchmark;
+const TestInputs:array[0..8] of string=
+       (
+        '3.14159265358979323846',
+        '12345678901234567890',
+        '123',
+        '123456',
+        '1234567890',
+        '1234e-16',
+        '1234e+16',
+        '0.1234e-16',
+        '0.1234e+16'
+       );
+      TestCount=100000;
+var TestInput:string;
+    TestCounter,Code:Int32;
+    Value:Double;
+    Start,Stop:UInt64;
+    OwnFormatSettings:TFormatSettings;
+begin
+
+ OwnFormatSettings:=FormatSettings;
+ OwnFormatSettings.ThousandSeparator:=',';
+ OwnFormatSettings.DecimalSeparator:='.';
+
+ for TestInput in TestInputs do begin
+
+  WriteLn('Benchmarking ',TestCount,'x "',TestInput,'" . . . ');
+
+  Start:=GetTickCount64;
+  for TestCounter:=1 to TestCount do begin
+   ConvertStringToDouble(TestInput);
+   readln;
+  end;
+  Stop:=GetTickCount64;
+  WriteLn('PasDblStrUtils.ConvertStringToDouble: ',Stop-Start:8,' ms');
+
+  Start:=GetTickCount64;
+  for TestCounter:=1 to TestCount do begin
+   Val(TestInput,Value,Code);
+  end;
+  Stop:=GetTickCount64;
+  if (Value<>0) and (Code=0) then begin
+  end;
+  WriteLn('                                 Val: ',Stop-Start:8,' ms');
+
+  Start:=GetTickCount64;
+  for TestCounter:=1 to TestCount do begin
+   Value:=StrToFloat(TestInput,OwnFormatSettings);
+  end;
+  Stop:=GetTickCount64;
+  if (Value<>0) and (Code=0) then begin
+  end;
+  WriteLn('                          StrToFloat: ',Stop-Start:8,' ms');
+
+  WriteLn;
+
+  readln;
+
+ end;
+end;
+
 {
 var v:Double;
     u:UInt64 absolute v;//}
@@ -636,6 +698,8 @@ begin
  writeln;
  readln;
  exit;     //}
+
+ Benchmark;
 
  TestDataPath:=IncludeTrailingPathDelimiter(ExpandFileName(IncludeTrailingPathDelimiter(IncludeTrailingPathDelimiter(IncludeTrailingPathDelimiter(IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0)))+'..')+'..')+'testdata')));
  writeln('Test data path: ',TestDataPath);
