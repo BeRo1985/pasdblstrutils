@@ -635,7 +635,7 @@ const TestInputs:array[0..8] of string=
         '0.1234e-16',
         '0.1234e+16'
        );
-      TestCount=100000;
+      TestCount=1000000;
 var TestInput:string;
     TestCounter,Code:Int32;
     Value:Double;
@@ -651,13 +651,15 @@ begin
 
   WriteLn('Benchmarking ',TestCount,'x "',TestInput,'" . . . ');
 
+  Write('PasDblStrUtils.ConvertStringToDouble: ');
   Start:=GetTickCount64;
   for TestCounter:=1 to TestCount do begin
    ConvertStringToDouble(TestInput);
   end;
   Stop:=GetTickCount64;
-  WriteLn('PasDblStrUtils.ConvertStringToDouble: ',Stop-Start:8,' ms');
+  WriteLn(Stop-Start:8,' ms');
 
+  Write('                                 Val: ');
   Start:=GetTickCount64;
   for TestCounter:=1 to TestCount do begin
    Val(TestInput,Value,Code);
@@ -665,8 +667,9 @@ begin
   Stop:=GetTickCount64;
   if (Value<>0) and (Code=0) then begin
   end;
-  WriteLn('                                 Val: ',Stop-Start:8,' ms');
+  WriteLn(Stop-Start:8,' ms');
 
+  Write('                          StrToFloat: ');
   Start:=GetTickCount64;
   for TestCounter:=1 to TestCount do begin
    Value:=StrToFloat(TestInput,OwnFormatSettings);
@@ -674,7 +677,7 @@ begin
   Stop:=GetTickCount64;
   if (Value<>0) and (Code=0) then begin
   end;
-  WriteLn('                          StrToFloat: ',Stop-Start:8,' ms');
+  WriteLn(Stop-Start:8,' ms');
 
   WriteLn;
 
