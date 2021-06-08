@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2021-06-07-12-09-0000                       *
+ *                        Version 2021-06-08-02-52-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -761,7 +761,7 @@ type TPasDblStrUtilsBigUnsignedInteger=record
        class operator Explicit(const a:TPasDblStrUtilsUInt64):TPasDblStrUtilsBigUnsignedInteger; {$ifdef caninline}inline;{$endif}
        class operator Explicit(const a:TPasDblStrUtilsBigUnsignedInteger):TPasDblStrUtilsUInt64; {$ifdef caninline}inline;{$endif}
        procedure Clear;
-       procedure Trim;
+       procedure Trim; {$ifdef caninline}inline;{$endif}
        procedure Dump;
        function Bits:TPasDblStrUtilsInt32;
        function IsZero:boolean;
@@ -772,10 +772,10 @@ type TPasDblStrUtilsBigUnsignedInteger=record
        procedure ShiftRightByOne; overload;
        procedure ShiftRight(const aBits:TPasDblStrUtilsUInt32); overload;
        procedure BitwiseAnd(const aWith:TPasDblStrUtilsBigUnsignedInteger); overload;
-       procedure Add(const aWith:TPasDblStrUtilsBigUnsignedInteger); overload;
        procedure Add(const aWith:TPasDblStrUtilsUInt32); overload;
-       procedure Sub(const aWith:TPasDblStrUtilsBigUnsignedInteger); overload;
+       procedure Add(const aWith:TPasDblStrUtilsBigUnsignedInteger); overload;
        procedure Sub(const aWith:TPasDblStrUtilsUInt32); overload;
+       procedure Sub(const aWith:TPasDblStrUtilsBigUnsignedInteger); overload;
        procedure Mul(const aWith:TPasDblStrUtilsUInt32); overload;
        procedure Mul(const aWith:TPasDblStrUtilsBigUnsignedInteger); overload;
        procedure MulAdd(const aMul,aAdd:TPasDblStrUtilsUInt32); overload;
@@ -784,7 +784,8 @@ type TPasDblStrUtilsBigUnsignedInteger=record
        procedure MultiplyPower5(aExponent:TPasDblStrUtilsUInt32);
        procedure MultiplyPower10(aExponent:TPasDblStrUtilsUInt32);
        function Scale2Exp(const aI:TPasDblStrUtilsInt32):TPasDblStrUtilsInt32;
-       function Compare(const aWith:TPasDblStrUtilsBigUnsignedInteger):TPasDblStrUtilsInt32;
+       function Compare(const aWith:TPasDblStrUtilsUInt64):TPasDblStrUtilsInt32; overload;
+       function Compare(const aWith:TPasDblStrUtilsBigUnsignedInteger):TPasDblStrUtilsInt32; overload;
        class function Difference(const aA,aB:TPasDblStrUtilsBigUnsignedInteger;out aOut:TPasDblStrUtilsBigUnsignedInteger):boolean; static;
      end;
 
@@ -895,6 +896,7 @@ begin
  end;
  if Count>0 then begin
   Move(aWith.Words[0],Words[0],Count*SizeOf(TWord));
+  Trim;
  end else begin
   if length(Words)<1 then begin
    SetLength(Words,1);
@@ -937,62 +939,49 @@ begin
 end;
 
 procedure TPasDblStrUtilsBigUnsignedInteger.ShiftLeft(const aBits:TPasDblStrUtilsUInt32);
-var Index,NewCount,LowOffset,HighOffset,LowShift,HighShift,Offset:TPasDblStrUtilsInt32;
-    Value:TWord;
-    NewWords:TWords;
+var Index,NewCount,BitLength,ShiftOffset,BitShift,InverseBitShift:TPasDblStrUtilsInt32;
+    Current,Next:TWord;
 begin
- if aBits<>0 then begin
+ if Count>0 then begin
   if aBits=1 then begin
    ShiftLeftByOne;
   end else begin
-   NewWords:=nil;
-   try
-    NewCount:=Count+((aBits+31) shr 5);
-    SetLength(NewWords,NewCount);
-    if (aBits and 31)<>0 then begin
-     LowOffset:=(aBits-1) shr 5;
-     HighOffset:=LowOffset+1;
-     LowShift:=aBits-(LowOffset shl 5);
-     HighShift:=32-LowShift;
-     for Index:=0 to NewCount-2 do begin
-      NewWords[Index]:=0;
-     end;
-     if (NewCount-HighOffset)<Count then begin
-      NewWords[NewCount-1]:=Words[NewCount-HighOffset] shl LowShift;
-     end else begin
-      NewWords[NewCount-1]:=0;
-     end;
-     for Index:=(NewCount-1)-HighOffset downto 0 do begin
-      if Index<Count then begin
-       Value:=Words[Index];
-      end else begin
-       Value:=0;
-      end;
-      NewWords[Index+LowOffset]:=NewWords[Index+LowOffset] or (Value shl LowShift);
-      NewWords[Index+HighOffset]:=NewWords[Index+HighOffset] or (Value shr HighShift);
-     end;
-    end else begin
-     Offset:=aBits shr 5;
-     for Index:=NewCount-1 downto Offset do begin
-      if (Index-Offset)<Count then begin
-       Value:=Words[Index-Offset];
-      end else begin
-       Value:=0;
-      end;
-      NewWords[Index]:=Words[Index-Offset];
-     end;
-     for Index:=0 to Offset-1 do begin
-      NewWords[Index]:=0;
-     end;
-    end;
-    Words:=NewWords;
-    Count:=NewCount;
-    while (Count>1) and (Words[Count-1]=0) do begin
-     dec(Count);
-    end;
-   finally
-    NewWords:=nil;
+   Current:=Words[Count-1];
+   if Current<>0 then begin
+    BitLength:=FloorLog2(Current);
+   end else begin
+    BitLength:=0;
    end;
+   NewCount:=Count+((BitLength+aBits) shr 5);
+   if Count<NewCount then begin
+    if length(Words)<NewCount then begin
+     SetLength(Words,NewCount+((NewCount+1) shr 1));
+    end;
+    for Index:=Count to NewCount-1 do begin
+     Words[Index]:=0;
+    end;
+   end;
+   Count:=NewCount;
+   ShiftOffset:=aBits shr 5;
+   BitShift:=aBits and 31;
+   InverseBitShift:=(32-BitShift) and 31;
+   if ShiftOffset<>0 then begin
+    for Index:=Count-1 downto ShiftOffset do begin
+     Words[Index]:=Words[Index-ShiftOffset];
+    end;
+    for Index:=0 to ShiftOffset-1 do begin
+     Words[Index]:=0;
+    end;
+   end;
+   if BitShift<>0 then begin
+    Next:=0;
+    for Index:=0 to Count-1 do begin
+     Current:=Words[Index];
+     Words[Index]:=(Current shl BitShift) or Next;
+     Next:=Current shr InverseBitShift;
+    end;
+   end;
+   Trim;
   end;
  end;
 end;
@@ -1012,47 +1001,33 @@ begin
 end;
 
 procedure TPasDblStrUtilsBigUnsignedInteger.ShiftRight(const aBits:TPasDblStrUtilsUInt32);
-var Index,LowOffset,HighOffset,LowShift,HighShift,Offset:TPasDblStrUtilsInt32;
-    Value:TWord;
-    NewWords:TWords;
+var Index,ShiftOffset,BitShift,InverseBitShift:TPasDblStrUtilsInt32;
+    Current,Next:TWord;
 begin
- if aBits<>0 then begin
+ if Count>0 then begin
   if aBits=1 then begin
    ShiftRightByOne;
   end else begin
-   NewWords:=nil;
-   try
-    SetLength(NewWords,Count);
-    if (aBits and 31)<>0 then begin
-     HighOffset:=(aBits-1) shr 5;
-     LowOffset:=HighOffset+1;
-     HighShift:=aBits-(HighOffset shl 5);
-     LowShift:=32-HighShift;
-     NewWords[0]:=Words[HighOffset] shr HighShift;
-     for Index:=1 to Count-1 do begin
-      NewWords[Index]:=0;
-     end;
-     for Index:=LowOffset to Count-1 do begin
-      Value:=Words[Index];
-      NewWords[Index-HighOffset]:=NewWords[Index-HighOffset] or (Value shr HighShift);
-      NewWords[Index-LowOffset]:=NewWords[Index-LowOffset] or (Value shl LowShift);
-     end;
-    end else begin
-     Offset:=aBits shr 5;
-     for Index:=Count-1 downto Offset do begin
-      NewWords[Index-Offset]:=Words[Index];
-     end;
-     for Index:=Count-Offset to Count-1 do begin
-      NewWords[Index]:=0;
-     end;
+   ShiftOffset:=aBits shr 5;
+   BitShift:=aBits and 31;
+   InverseBitShift:=(32-BitShift) and 31;
+   if ShiftOffset<>0 then begin
+    for Index:=Count-1 downto ShiftOffset do begin
+     Words[Index-ShiftOffset]:=Words[Index];
     end;
-    while (Count>1) and (NewWords[Count-1]=0) do begin
-     dec(Count);
+    for Index:=Count-ShiftOffset to Count-1 do begin
+     Words[Index]:=0;
     end;
-    Words:=copy(NewWords,0,Count);
-   finally
-    NewWords:=nil;
    end;
+   if BitShift<>0 then begin
+    Next:=0;
+    for Index:=Count-1 downto 0 do begin
+     Current:=Words[Index];
+     Words[Index]:=(Current shr BitShift) or Next;
+     Next:=Current shl InverseBitShift;
+    end;
+   end;
+   Trim;
   end;
  end;
 end;
@@ -1069,6 +1044,35 @@ begin
    Value:=0;
   end;
   Words[Index]:=Value;
+ end;
+ Trim;
+end;
+
+procedure TPasDblStrUtilsBigUnsignedInteger.Add(const aWith:TPasDblStrUtilsUInt32);
+var Index,OldCount,OtherIndex:TPasDblStrUtilsInt32;
+    Carry:TPasDblStrUtilsUInt32;
+    Temporary:TPasDblStrUtilsUInt64;
+begin
+ Index:=0;
+ Carry:=aWith;
+ while (Carry<>0) and (Index<Count) do begin
+  Temporary:=TPasDblStrUtilsUInt64(TPasDblStrUtilsUInt64(Words[Index])+TPasDblStrUtilsUInt64(Carry));
+  Words[Index]:=Temporary and TPasDblStrUtilsUInt32($ffffffff);
+  Carry:=Temporary shr 32;
+  inc(Index);
+ end;
+ if Carry<>0 then begin
+  if Count<=Index then begin
+   OldCount:=Count;
+   Count:=Index+1;
+   if length(Words)<Count then begin
+    SetLength(Words,Count+((Count+1) shr 1));
+   end;
+   for OtherIndex:=OldCount to Count-1 do begin
+    Words[OtherIndex]:=0;
+   end;
+  end;
+  Words[Index]:=Carry;
  end;
  Trim;
 end;
@@ -1122,34 +1126,23 @@ begin
   end;
   Words[Index]:=Carry;
  end;
+ Trim;
 end;
 
-procedure TPasDblStrUtilsBigUnsignedInteger.Add(const aWith:TPasDblStrUtilsUInt32);
-var Index,OldCount,OtherIndex:TPasDblStrUtilsInt32;
-    Carry:TPasDblStrUtilsUInt32;
+procedure TPasDblStrUtilsBigUnsignedInteger.Sub(const aWith:TPasDblStrUtilsUInt32);
+var Index:TPasDblStrUtilsInt32;
+    Borrow:TPasDblStrUtilsUInt32;
     Temporary:TPasDblStrUtilsUInt64;
 begin
  Index:=0;
- Carry:=aWith;
- while (Carry<>0) and (Index<Count) do begin
-  Temporary:=TPasDblStrUtilsUInt64(TPasDblStrUtilsUInt64(Words[Index])+TPasDblStrUtilsUInt64(Carry));
+ Borrow:=aWith;
+ while (Borrow<>0) and (Index<Count) do begin
+  Temporary:=TPasDblStrUtilsUInt64(TPasDblStrUtilsUInt64(Words[Index])-TPasDblStrUtilsUInt64(Borrow));
   Words[Index]:=Temporary and TPasDblStrUtilsUInt32($ffffffff);
-  Carry:=Temporary shr 32;
+  Borrow:=Temporary shr 63;
   inc(Index);
  end;
- if Carry<>0 then begin
-  if Count<=Index then begin
-   OldCount:=Count;
-   Count:=Index+1;
-   if length(Words)<Count then begin
-    SetLength(Words,Count+((Count+1) shr 1));
-   end;
-   for OtherIndex:=OldCount to Count-1 do begin
-    Words[OtherIndex]:=0;
-   end;
-  end;
-  Words[Index]:=Carry;
- end;
+ Trim;
 end;
 
 procedure TPasDblStrUtilsBigUnsignedInteger.Sub(const aWith:TPasDblStrUtilsBigUnsignedInteger);
@@ -1176,24 +1169,6 @@ begin
   inc(Index);
  end;
  Trim;
-end;
-
-procedure TPasDblStrUtilsBigUnsignedInteger.Sub(const aWith:TPasDblStrUtilsUInt32);
-var Index:TPasDblStrUtilsInt32;
-    Borrow:TPasDblStrUtilsUInt32;
-    Temporary:TPasDblStrUtilsUInt64;
-begin
- Index:=0;
- Borrow:=aWith;
- while (Borrow<>0) and (Index<Count) do begin
-  Temporary:=TPasDblStrUtilsUInt64(TPasDblStrUtilsUInt64(Words[Index])-TPasDblStrUtilsUInt64(Borrow));
-  Words[Index]:=Temporary and TPasDblStrUtilsUInt32($ffffffff);
-  Borrow:=Temporary shr 63;
-  inc(Index);
- end;
- if (Count>1) and (Words[Count-1]=0) then begin
-  dec(Count);
- end;
 end;
 
 procedure TPasDblStrUtilsBigUnsignedInteger.Mul(const aWith:TPasDblStrUtilsUInt32);
@@ -1392,46 +1367,58 @@ begin
  end;
 end;
 
-function TPasDblStrUtilsBigUnsignedInteger.Compare(const aWith:TPasDblStrUtilsBigUnsignedInteger):TPasDblStrUtilsInt32;
-var Index,MinCount,MaxCount:TPasDblStrUtilsInt32;
-    a,b:TWord;
+function TPasDblStrUtilsBigUnsignedInteger.Compare(const aWith:TPasDblStrUtilsUInt64):TPasDblStrUtilsInt32;
+var Value:TPasDblStrUtilsUInt64;
 begin
- if Count<>aWith.Count then begin
-  if Count<aWith.Count then begin
-   MinCount:=Count;
-   MaxCount:=aWith.Count;
-  end else begin
-   MinCount:=aWith.Count;
-   MaxCount:=Count;
+ case Count of
+  0:begin
+   result:=-1;
   end;
-  for Index:=MaxCount-1 downto MinCount do begin
-   if Index<Count then begin
-    a:=Words[Index];
+  1:begin
+   Value:=Words[0];
+   if Value<aWith then begin
+    result:=-1;
+   end else if Value>aWith then begin
+    result:=1;
    end else begin
-    a:=0;
-   end;
-   if Index<aWith.Count then begin
-    b:=aWith.Words[Index];
-   end else begin
-    b:=0;
-   end;
-   if a<>b then begin
-    if a<b then begin
-     result:=-1;
-    end else begin
-     result:=1;
-    end;
-    exit;
+    result:=0;
    end;
   end;
- end else begin
-  MinCount:=Count;
+  2:begin
+{$ifdef BIG_ENDIAN}
+   Value:=Words[0] or (TPasDblStrUtilsUInt64(Words[1]) shl 32);
+{$else}
+   Value:=PPasDblStrUtilsUInt64(@Words[0])^;
+{$endif}
+   if Value<aWith then begin
+    result:=-1;
+   end else if Value>aWith then begin
+    result:=1;
+   end else begin
+    result:=0;
+   end;
+  end;
+  else begin
+   result:=1;
+  end;
  end;
- for Index:=MinCount-1 downto 0 do begin
-  a:=Words[Index];
-  b:=aWith.Words[Index];
-  if a<>b then begin
-   if a<b then begin
+end;
+
+function TPasDblStrUtilsBigUnsignedInteger.Compare(const aWith:TPasDblStrUtilsBigUnsignedInteger):TPasDblStrUtilsInt32;
+var Index:TPasDblStrUtilsInt32;
+    Difference:TPasDblStrUtilsInt64;
+begin
+ if Count<aWith.Count then begin
+  result:=-1;
+  exit;
+ end else if Count>aWith.Count then begin
+  result:=1;
+  exit;
+ end;
+ for Index:=Count-1 downto 0 do begin
+  Difference:=TPasDblStrUtilsInt64(Words[Index])-TPasDblStrUtilsInt64(aWith.Words[Index]);
+  if Difference<>0 then begin
+   if Difference<0 then begin
     result:=-1;
    end else begin
     result:=1;
@@ -3539,12 +3526,12 @@ const Power2Table:TPowerTable=
         0
        );
 var Index,Position,
-    BaseMantissaParserBufferSize,BaseMantissaParserBufferLimit,
+    uParserBufferSize,uParserBufferLimit,
     RoundMode,Exponent,Cmp,Log2U,Log2V,UShift,VShift,Log2Ratio,
     BitLen,LeastSignificantBit:TPasDblStrUtilsInt32;
-    BaseMantissa,Remainder,MinSig,MaxSig,u,v,x:TPasDblStrUtilsBigUnsignedInteger;
-    BaseMantissaParserBuffer,Base:TPasDblStrUtilsUInt32;
-    BaseExponent,ExponentValue,IEEEExponent:TPasDblStrUtilsInt64;
+    Remainder,u,v,x:TPasDblStrUtilsBigUnsignedInteger;
+    uParserBuffer,Base:TPasDblStrUtilsUInt32;
+    uExponent,ExponentValue,IEEEExponent:TPasDblStrUtilsInt64;
     IEEEMantissa:TPasDblStrUtilsUInt64;
     HasDigits,SignedMantissa,SignedExponent,Underflow,Even:boolean;
     c:TPasDblStrUtilsChar;
@@ -3554,8 +3541,8 @@ begin
 
  SignedMantissa:=false;
  Position:=0;
- BaseMantissa:=0;
- BaseExponent:=0;
+ u:=0;
+ uExponent:=0;
 
  while (Position<aStringLength) and (aStringValue[Position] in [#0..#32]) do begin
   inc(Position);
@@ -3664,34 +3651,34 @@ begin
   Base:=aBase;
  end;
 
- BaseMantissaParserBuffer:=0;
- BaseMantissaParserBufferSize:=0;
+ uParserBuffer:=0;
+ uParserBufferSize:=0;
 
  case Base of
   2:begin
    PowerTable:=@Power2Table;
    AllowedChars:=['0'..'1'];
-   BaseMantissaParserBufferLimit:=16;
+   uParserBufferLimit:=16;
   end;
   4:begin
    PowerTable:=@Power4Table;
    AllowedChars:=['0'..'3'];
-   BaseMantissaParserBufferLimit:=12;
+   uParserBufferLimit:=12;
   end;
   8:begin
    PowerTable:=@Power8Table;
    AllowedChars:=['0'..'7'];
-   BaseMantissaParserBufferLimit:=10;
+   uParserBufferLimit:=10;
   end;
   10:begin
    PowerTable:=@Power10Table;
    AllowedChars:=['0'..'9'];
-   BaseMantissaParserBufferLimit:=9;
+   uParserBufferLimit:=9;
   end;
   16:begin
    PowerTable:=@Power16Table;
    AllowedChars:=['0'..'9','a'..'f','A'..'F'];
-   BaseMantissaParserBufferLimit:=7;
+   uParserBufferLimit:=7;
   end;
   else begin
    result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
@@ -3709,32 +3696,32 @@ begin
    if c in AllowedChars then begin
     case c of
      '0'..'9':begin
-      BaseMantissaParserBuffer:=(BaseMantissaParserBuffer*Base)+TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[Position]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('0'));
-      inc(BaseMantissaParserBufferSize);
-      if BaseMantissaParserBufferSize>=BaseMantissaParserBufferLimit then begin
-       BaseMantissa.MulAdd(PowerTable^[BaseMantissaParserBufferSize],BaseMantissaParserBuffer);
-       BaseMantissaParserBufferSize:=0;
-       BaseMantissaParserBuffer:=0;
+      uParserBuffer:=(uParserBuffer*Base)+TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[Position]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('0'));
+      inc(uParserBufferSize);
+      if uParserBufferSize>=uParserBufferLimit then begin
+       u.MulAdd(PowerTable^[uParserBufferSize],uParserBuffer);
+       uParserBufferSize:=0;
+       uParserBuffer:=0;
       end;
       inc(Position);
      end;
      'a'..'z':begin
-      BaseMantissaParserBuffer:=(BaseMantissaParserBuffer*Base)+(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[Position]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('a'))+$a);
-      inc(BaseMantissaParserBufferSize);
-      if BaseMantissaParserBufferSize>=BaseMantissaParserBufferLimit then begin
-       BaseMantissa.MulAdd(PowerTable^[BaseMantissaParserBufferSize],BaseMantissaParserBuffer);
-       BaseMantissaParserBufferSize:=0;
-       BaseMantissaParserBuffer:=0;
+      uParserBuffer:=(uParserBuffer*Base)+(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[Position]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('a'))+$a);
+      inc(uParserBufferSize);
+      if uParserBufferSize>=uParserBufferLimit then begin
+       u.MulAdd(PowerTable^[uParserBufferSize],uParserBuffer);
+       uParserBufferSize:=0;
+       uParserBuffer:=0;
       end;
       inc(Position);
      end;
      'A'..'Z':begin
-      BaseMantissaParserBuffer:=(BaseMantissaParserBuffer*Base)+(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[Position]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('A'))+$a);
-      inc(BaseMantissaParserBufferSize);
-      if BaseMantissaParserBufferSize>=BaseMantissaParserBufferLimit then begin
-       BaseMantissa.MulAdd(PowerTable^[BaseMantissaParserBufferSize],BaseMantissaParserBuffer);
-       BaseMantissaParserBufferSize:=0;
-       BaseMantissaParserBuffer:=0;
+      uParserBuffer:=(uParserBuffer*Base)+(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[Position]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('A'))+$a);
+      inc(uParserBufferSize);
+      if uParserBufferSize>=uParserBufferLimit then begin
+       u.MulAdd(PowerTable^[uParserBufferSize],uParserBuffer);
+       uParserBufferSize:=0;
+       uParserBuffer:=0;
       end;
       inc(Position);
      end;
@@ -3757,37 +3744,37 @@ begin
     if c in AllowedChars then begin
      case c of
       '0'..'9':begin
-       BaseMantissaParserBuffer:=(BaseMantissaParserBuffer*Base)+TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[Position]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('0'));
-       inc(BaseMantissaParserBufferSize);
-       if BaseMantissaParserBufferSize>=BaseMantissaParserBufferLimit then begin
-        BaseMantissa.MulAdd(PowerTable^[BaseMantissaParserBufferSize],BaseMantissaParserBuffer);
-        BaseMantissaParserBufferSize:=0;
-        BaseMantissaParserBuffer:=0;
+       uParserBuffer:=(uParserBuffer*Base)+TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[Position]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('0'));
+       inc(uParserBufferSize);
+       if uParserBufferSize>=uParserBufferLimit then begin
+        u.MulAdd(PowerTable^[uParserBufferSize],uParserBuffer);
+        uParserBufferSize:=0;
+        uParserBuffer:=0;
        end;
        inc(Position);
-       dec(BaseExponent);
+       dec(uExponent);
       end;
       'a'..'z':begin
-       BaseMantissaParserBuffer:=(BaseMantissaParserBuffer*Base)+(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[Position]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('a'))+$a);
-       inc(BaseMantissaParserBufferSize);
-       if BaseMantissaParserBufferSize>=BaseMantissaParserBufferLimit then begin
-        BaseMantissa.MulAdd(PowerTable^[BaseMantissaParserBufferSize],BaseMantissaParserBuffer);
-        BaseMantissaParserBufferSize:=0;
-        BaseMantissaParserBuffer:=0;
+       uParserBuffer:=(uParserBuffer*Base)+(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[Position]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('a'))+$a);
+       inc(uParserBufferSize);
+       if uParserBufferSize>=uParserBufferLimit then begin
+        u.MulAdd(PowerTable^[uParserBufferSize],uParserBuffer);
+        uParserBufferSize:=0;
+        uParserBuffer:=0;
        end;
        inc(Position);
-       dec(BaseExponent);
+       dec(uExponent);
       end;
       'A'..'Z':begin
-       BaseMantissaParserBuffer:=(BaseMantissaParserBuffer*Base)+(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[Position]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('A'))+$a);
-       inc(BaseMantissaParserBufferSize);
-       if BaseMantissaParserBufferSize>=BaseMantissaParserBufferLimit then begin
-        BaseMantissa.MulAdd(PowerTable^[BaseMantissaParserBufferSize],BaseMantissaParserBuffer);
-        BaseMantissaParserBufferSize:=0;
-        BaseMantissaParserBuffer:=0;
+       uParserBuffer:=(uParserBuffer*Base)+(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[Position]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('A'))+$a);
+       inc(uParserBufferSize);
+       if uParserBufferSize>=uParserBufferLimit then begin
+        u.MulAdd(PowerTable^[uParserBufferSize],uParserBuffer);
+        uParserBufferSize:=0;
+        uParserBuffer:=0;
        end;
        inc(Position);
-       dec(BaseExponent);
+       dec(uExponent);
       end;
       else begin
        break;
@@ -3800,9 +3787,9 @@ begin
   end;
  end;
 
- if BaseMantissaParserBufferSize>0 then begin
-  BaseMantissa.MulAdd(PowerTable^[BaseMantissaParserBufferSize],BaseMantissaParserBuffer);
-  BaseMantissaParserBufferSize:=0;
+ if uParserBufferSize>0 then begin
+  u.MulAdd(PowerTable^[uParserBufferSize],uParserBuffer);
+  uParserBufferSize:=0;
  end;
 
  if not HasDigits then begin
@@ -3828,9 +3815,9 @@ begin
     inc(Position);
    until (Position>=aStringLength) or not (aStringValue[Position] in ['0'..'9']);
    if SignedExponent then begin
-    dec(BaseExponent,ExponentValue);
+    dec(uExponent,ExponentValue);
    end else begin
-    inc(BaseExponent,ExponentValue);
+    inc(uExponent,ExponentValue);
    end;
   end else begin
    result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
@@ -3841,7 +3828,7 @@ begin
   end;
  end;
 
- if BaseMantissa.IsZero then begin
+ if u.IsZero then begin
   result:=UInt64Bits2Double(TPasDblStrUtilsUInt64(TPasDblStrUtilsUInt64(ord(SignedMantissa) and 1) shl 63)); // +/- 0
   if assigned(aOK) then begin
    aOK^:=true;
@@ -3854,30 +3841,29 @@ begin
   MinSig:=MIN_SIG;
   MaxSig:=MAX_SIG;
 
-  u:=BaseMantissa;
   v:=1;
 
-  if BaseExponent<>0 then begin
+  if uExponent<>0 then begin
    case Base of
     2:begin
-     if BaseExponent>0 then begin
-      u.ShiftLeft(BaseExponent);
+     if uExponent>0 then begin
+      u.ShiftLeft(uExponent);
      end else begin
-      v.ShiftLeft(-BaseExponent);
+      v.ShiftLeft(-uExponent);
      end;
     end;
     10:begin
-     if BaseExponent>0 then begin
-      u.MultiplyPower10(BaseExponent);
+     if uExponent>0 then begin
+      u.MultiplyPower10(uExponent);
      end else begin
-      v.MultiplyPower10(-BaseExponent);
+      v.MultiplyPower10(-uExponent);
      end;
     end;
     else begin
-     if BaseExponent>0 then begin
-      u.Mul(TPasDblStrUtilsBigUnsignedInteger.Power(Base,BaseExponent));
+     if uExponent>0 then begin
+      u.Mul(TPasDblStrUtilsBigUnsignedInteger.Power(Base,uExponent));
      end else begin
-      v.Mul(TPasDblStrUtilsBigUnsignedInteger.Power(Base,-BaseExponent));
+      v.Mul(TPasDblStrUtilsBigUnsignedInteger.Power(Base,-uExponent));
      end;
     end;
    end;
@@ -3919,7 +3905,7 @@ begin
   repeat
    u.DivMod(v,x,Remainder);
    if Exponent<=MIN_EXP_INT then begin
-    if (x.Compare(MinSig)>=0) and (x.Compare(MaxSig)<=0) then begin
+    if (x.Compare(MIN_SIG)>=0) and (x.Compare(MAX_SIG)<=0) then begin
      break;
     end;
     Underflow:=true;
@@ -3929,10 +3915,10 @@ begin
     result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff0000000000000) or (TPasDblStrUtilsUInt64(ord(SignedMantissa) and 1) shl 63)); // -/+Inf
     exit;
    end;
-   if x.Compare(MinSig)<0 then begin
+   if x.Compare(MIN_SIG)<0 then begin
     u.ShiftLeftByOne;
     dec(Exponent);
-   end else if x.Compare(MaxSig)>0 then begin
+   end else if x.Compare(MAX_SIG)>0 then begin
     v.ShiftLeftByOne;
     inc(Exponent);
    end else begin
@@ -3945,7 +3931,7 @@ begin
   LeastSignificantBit:=0;
 
   if Underflow then begin
-   if x.Compare(MinSig)<0 then begin
+   if x.Compare(MIN_SIG)<0 then begin
     IEEEMantissa:=TPasDblStrUtilsUInt64(x);
     IEEEExponent:=0;
     RoundMode:=RoundByRemainder;
