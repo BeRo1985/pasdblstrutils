@@ -3838,9 +3838,6 @@ begin
 
  if Position>=aStringLength then begin
 
-  MinSig:=MIN_SIG;
-  MaxSig:=MAX_SIG;
-
   v:=1;
 
   if uExponent<>0 then begin
