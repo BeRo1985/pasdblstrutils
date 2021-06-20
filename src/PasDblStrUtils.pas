@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2021-06-08-03-06-0000                       *
+ *                        Version 2021-06-21-01-13-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -320,7 +320,7 @@
 {$longstrings on}
 {$openstrings on}
 {$ifdef fpc}
- //{$optimization level3}
+ {$optimization level1}
 {$endif}
 
 interface
@@ -5456,6 +5456,9 @@ begin
     end;
    end else begin
     if Exponent<0 then begin
+     if length(result)<((OutputLen-Exponent)+1) then begin
+      SetLength(result,(OutputLen-Exponent)+1);
+     end;
      inc(Len);
      result[Len]:='0';
      inc(Len);
@@ -5473,6 +5476,9 @@ begin
      end;
      result[(Len-OutputLen)+1]:=AnsiChar(TPasDblStrUtilsUInt8(TPasDblStrUtilsUInt8(AnsiChar('0'))+(Output mod 10)));
     end else begin
+     if length(result)<(Max(OutputLen,Exponent)+1) then begin
+      SetLength(result,Max(OutputLen,Exponent)+1);
+     end;
      Anchor:=Len+1;
      Position:=OutputLen-1;
      for Index:=0 to OutputLen-1 do begin
@@ -5483,9 +5489,15 @@ begin
      for Index:=0 to OutputLen-1 do begin
       inc(Len);
       result[Len]:=Digits[Index];
-      if Exponent=Index then begin
+      if (Exponent=Index) and (Index<>(OutputLen-1)) then begin
        inc(Len);
        result[Len]:='.';
+      end;
+     end;
+     if OutputLen<=Exponent then begin
+      for Index:=OutputLen to Exponent do begin
+       inc(Len);
+       result[Len]:='0';
       end;
      end;
     end;
