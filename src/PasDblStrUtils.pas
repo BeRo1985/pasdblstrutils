@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2026-10-09-05-49-0000                       *
+ *                        Version 2026-10-09-06-14-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -2308,7 +2308,8 @@ type PFPLimb=^TFPLimb;
   aExponent:=TwoPower;
   result:=true;
  end;
- function ProcessNonDecimal(const aFloatStringValue:PPasDblStrUtilsChar;const aFloatStringLength:TPasDblStrUtilsInt32;const aFloatStringStartPosition,aBits:TPasDblStrUtilsInt32;out aMantissa:TMantissa;var aExponent:TPasDblStrUtilsInt32):TPasDblStrUtilsBoolean;
+ // aBinaryExponent: The p exponent is a power of two (C99 hexadecimal floating point syntax), otherwise it is a power of the radix
+ function ProcessNonDecimal(const aFloatStringValue:PPasDblStrUtilsChar;const aFloatStringLength:TPasDblStrUtilsInt32;const aFloatStringStartPosition,aBits:TPasDblStrUtilsInt32;const aBinaryExponent:TPasDblStrUtilsBoolean;out aMantissa:TMantissa;var aExponent:TPasDblStrUtilsInt32):TPasDblStrUtilsBoolean;
  const Log2Table:array[0..15] of TPasDblStrUtilsInt32=(-1,0,1,1,2,2,2,2,3,3,3,3,3,3,3,3);
  var FloatStringPosition,TwoPower,ExponentValue,MantissaPosition,Value,Radix,MantissaShift,l:TPasDblStrUtilsInt32;
      SeenDigit,SeenDot,HasDigits:TPasDblStrUtilsBoolean;
@@ -2356,7 +2357,7 @@ type PFPLimb=^TFPLimb;
        MantissaPointer:=@Mult[0];
        MantissaShift:=(LIMB_BITS-1)-l;
        if SeenDot then begin
-        TwoPower:=(TwoPower-aBits)+l;
+        TwoPower:=(TwoPower-aBits)+(l+1);
        end else begin
         TwoPower:=(l+1)-aBits;
        end;
@@ -2407,7 +2408,11 @@ type PFPLimb=^TFPLimb;
      result:=false;
      exit;
     end;
-    inc(TwoPower,ExponentValue);
+    if aBinaryExponent then begin
+     inc(TwoPower,ExponentValue);
+    end else begin
+     inc(TwoPower,ExponentValue*aBits);
+    end;
    end else begin
     result:=false;
     exit;
@@ -2624,7 +2629,7 @@ type PFPLimb=^TFPLimb;
   end;
   result:=true;
  end;
-var OK:TPasDblStrUtilsBoolean;
+var OK,BinaryExponent:TPasDblStrUtilsBoolean;
     FloatStringPosition,Exponent,ExpMax,FloatType,Shift,Bits,OnePos,i:TPasDblStrUtilsInt32;
     OneMask:TFPLimb;
     Negative:TPasDblStrUtilsBoolean;
@@ -2661,30 +2666,32 @@ begin
   else begin
    case aBase of
     2:begin
-     OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,1,Mantissa,Exponent);
+     OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,1,false,Mantissa,Exponent);
     end;
     4:begin
-     OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,2,Mantissa,Exponent);
+     OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,2,false,Mantissa,Exponent);
     end;
     8:begin
-     OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,3,Mantissa,Exponent);
+     OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,3,false,Mantissa,Exponent);
     end;
     10:begin
      OK:=ProcessDecimal(aFloatString,aFloatStringLength,FloatStringPosition,Mantissa,Exponent);
     end;
     16:begin
-     OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,4,Mantissa,Exponent);
+     OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,4,false,Mantissa,Exponent);
     end;
     else begin
      if ((FloatStringPosition+1)<aFloatStringLength) and ((aFloatString[FloatStringPosition]='0') and (aFloatString[FloatStringPosition+1] in ['h','H','x','X'])) then begin
+      // "0x" is the C99 hexadecimal floating point syntax with a binary p exponent, the other prefixes use a power of the radix
+      BinaryExponent:=aFloatString[FloatStringPosition+1] in ['x','X'];
       inc(FloatStringPosition,2);
-      OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,4,Mantissa,Exponent);
+      OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,4,BinaryExponent,Mantissa,Exponent);
      end else if ((FloatStringPosition+1)<aFloatStringLength) and ((aFloatString[FloatStringPosition]='0') and (aFloatString[FloatStringPosition+1] in ['o','O','q','Q'])) then begin
       inc(FloatStringPosition,2);
-      OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,3,Mantissa,Exponent);
+      OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,3,false,Mantissa,Exponent);
      end else if ((FloatStringPosition+1)<aFloatStringLength) and ((aFloatString[FloatStringPosition]='0') and (aFloatString[FloatStringPosition+1] in ['b','B','y','Y'])) then begin
       inc(FloatStringPosition,2);
-      OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,1,Mantissa,Exponent);
+      OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,1,false,Mantissa,Exponent);
      end else if ((FloatStringPosition+1)<aFloatStringLength) and ((aFloatString[FloatStringPosition]='0') and (aFloatString[FloatStringPosition+1] in ['d','D','t','T'])) then begin
       inc(FloatStringPosition,2);
       OK:=ProcessDecimal(aFloatString,aFloatStringLength,FloatStringPosition,Mantissa,Exponent);
@@ -2694,13 +2701,13 @@ begin
       exit;
      end else if (FloatStringPosition<aFloatStringLength) and (aFloatString[FloatStringPosition]='$') then begin
       inc(FloatStringPosition);
-      OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,4,Mantissa,Exponent);
+      OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,4,false,Mantissa,Exponent);
      end else if (FloatStringPosition<aFloatStringLength) and (aFloatString[FloatStringPosition]='&') then begin
       inc(FloatStringPosition);
-      OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,3,Mantissa,Exponent);
+      OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,3,false,Mantissa,Exponent);
      end else if (FloatStringPosition<aFloatStringLength) and (aFloatString[FloatStringPosition]='%') then begin
       inc(FloatStringPosition);
-      OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,1,Mantissa,Exponent);
+      OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,1,false,Mantissa,Exponent);
      end else begin
       OK:=ProcessDecimal(aFloatString,aFloatStringLength,FloatStringPosition,Mantissa,Exponent);
      end;
@@ -3602,10 +3609,10 @@ var Index,Position,
     RoundMode,Exponent,Cmp,Log2U,Log2V,UShift,VShift,Log2Ratio,
     BitLen,LeastSignificantBit,Log2BaseFloor:TPasDblStrUtilsInt32;
     Remainder,u,v,x:TPasDblStrUtilsBigUnsignedInteger;
-    uParserBuffer,Base:TPasDblStrUtilsUInt32;
-    uExponent,ExponentValue,IEEEExponent:TPasDblStrUtilsInt64;
+    uParserBuffer,Base,ExponentBase:TPasDblStrUtilsUInt32;
+    uExponent,ExponentValue,BinaryExponentValue,IEEEExponent:TPasDblStrUtilsInt64;
     IEEEMantissa:TPasDblStrUtilsUInt64;
-    HasDigits,SignedMantissa,SignedExponent,Underflow,Even:boolean;
+    HasDigits,SignedMantissa,SignedExponent,Underflow,Even,BinaryExponent:boolean;
     c:TPasDblStrUtilsChar;
     PowerTable:PPowerTable;
     AllowedChars:TAllowedChars;
@@ -3615,6 +3622,8 @@ begin
  Position:=0;
  u:=0;
  uExponent:=0;
+ BinaryExponent:=false;
+ BinaryExponentValue:=0;
 
  while (Position<aStringLength) and (aStringValue[Position] in [#0..#32]) do begin
   inc(Position);
@@ -3677,7 +3686,12 @@ begin
     'd','D','t','T':begin
      Base:=10;
     end;
-    'x','X','h','H':begin
+    'x','X':begin
+     // "0x" is the C99 hexadecimal floating point syntax with a binary p exponent, the other prefixes use a power of the radix
+     Base:=16;
+     BinaryExponent:=true;
+    end;
+    'h','H':begin
      Base:=16;
     end;
     else begin
@@ -3858,7 +3872,8 @@ begin
   exit;
  end;
 
- if (Position<aStringLength) and (aStringValue[Position] in ['e','E','p','P']) then begin
+ // The exponent is introduced by e for decimal numbers and by p for all other bases, where e is a digit at hexadecimal numbers
+ if (Position<aStringLength) and (((Base=10) and (aStringValue[Position] in ['e','E'])) or ((Base<>10) and (aStringValue[Position] in ['p','P']))) then begin
   inc(Position);
   if (Position<aStringLength) and (aStringValue[Position] in ['+','-']) then begin
    SignedExponent:=aStringValue[Position]='-';
@@ -3876,7 +3891,10 @@ begin
     inc(Position);
    until (Position>=aStringLength) or not (aStringValue[Position] in ['0'..'9']);
    if SignedExponent then begin
-    dec(uExponent,ExponentValue);
+    ExponentValue:=-ExponentValue;
+   end;
+   if BinaryExponent then begin
+    BinaryExponentValue:=ExponentValue;
    end else begin
     inc(uExponent,ExponentValue);
    end;
@@ -3887,6 +3905,15 @@ begin
    end;
    exit;
   end;
+ end;
+
+ if BinaryExponent then begin
+  // The exponent of the hexadecimal digit positions is converted into a power of two, so that it can be combined
+  // with the binary p exponent, and the scaling below works in base 2 then
+  uExponent:=(uExponent*4)+BinaryExponentValue;
+  ExponentBase:=2;
+ end else begin
+  ExponentBase:=Base;
  end;
 
  if u.IsZero then begin
@@ -3901,9 +3928,9 @@ begin
 
   // Exponents far outside of the double range are decided here already, otherwise the big integer
   // arithmetic below would compute giant powers for nothing, which costs quadratic time in the exponent.
-  // floor(log2(Base)) gives a safe lower bound of the magnitude for the overflow check, and also a safe
+  // floor(log2(ExponentBase)) gives a safe lower bound of the magnitude for the overflow check, and also a safe
   // upper bound for the underflow check, since the exponent is negative there.
-  case Base of
+  case ExponentBase of
    2:begin
     Log2BaseFloor:=1;
    end;
@@ -3936,7 +3963,7 @@ begin
   v:=1;
 
   if uExponent<>0 then begin
-   case Base of
+   case ExponentBase of
     2:begin
      if uExponent>0 then begin
       u.ShiftLeft(uExponent);
@@ -3953,9 +3980,9 @@ begin
     end;
     else begin
      if uExponent>0 then begin
-      u.Mul(TPasDblStrUtilsBigUnsignedInteger.Power(Base,uExponent));
+      u.Mul(TPasDblStrUtilsBigUnsignedInteger.Power(ExponentBase,uExponent));
      end else begin
-      v.Mul(TPasDblStrUtilsBigUnsignedInteger.Power(Base,-uExponent));
+      v.Mul(TPasDblStrUtilsBigUnsignedInteger.Power(ExponentBase,-uExponent));
      end;
     end;
    end;
