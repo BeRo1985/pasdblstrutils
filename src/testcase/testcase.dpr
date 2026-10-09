@@ -372,6 +372,80 @@ begin
   Check(UInt64($C023400000000000),omFixed,2,'-9.63');
 end;
 
+procedure TestParserValidation;
+ procedure CheckInvalid(const aString:RawByteString);
+ var OK:boolean;
+     Value:Double;
+ begin
+  Value:=ConvertStringToDouble(aString,rmNearest,@OK);
+  if OK then begin
+   writeln('Failed: "',aString,'" accepted as ',IntToHex(UInt64(Pointer(@Value)^),16));
+  end;
+ end;
+ procedure CheckValid(const aString:RawByteString;const aExpectedBits:UInt64);
+ var OK:boolean;
+     Value:Double;
+ begin
+  Value:=ConvertStringToDouble(aString,rmNearest,@OK);
+  if (not OK) or (UInt64(Pointer(@Value)^)<>aExpectedBits) then begin
+   writeln('Failed: "',aString,'" -> ',OK,' ',IntToHex(UInt64(Pointer(@Value)^),16),' <> ',IntToHex(aExpectedBits,16));
+  end;
+ end;
+ procedure CheckNaN(const aString:RawByteString);
+ var OK:boolean;
+     Value:Double;
+     Bits:UInt64;
+ begin
+  Value:=ConvertStringToDouble(aString,rmNearest,@OK);
+  Bits:=UInt64(Pointer(@Value)^);
+  if (not OK) or ((Bits and UInt64($7ff0000000000000))<>UInt64($7ff0000000000000)) or ((Bits and UInt64($000fffffffffffff))=0) then begin
+   writeln('Failed: "',aString,'" -> ',OK,' ',IntToHex(Bits,16),' is not a NaN');
+  end;
+ end;
+begin
+  CheckInvalid('');
+  CheckInvalid(' ');
+  CheckInvalid('.');
+  CheckInvalid('-');
+  CheckInvalid('+');
+  CheckInvalid('1e');
+  CheckInvalid('1e+');
+  CheckInvalid('12 ');
+  CheckInvalid('12x');
+  CheckInvalid('1.2.3');
+  CheckInvalid('1_000');
+  CheckInvalid('infxyz');
+  CheckInvalid('nanx');
+  CheckInvalid('infinit');
+  CheckInvalid('0x');
+  CheckInvalid('$');
+  CheckInvalid('1e99999x');
+  CheckInvalid('1.5e5 ');
+  CheckValid('  12',UInt64($4028000000000000));
+  CheckValid('-.5',UInt64($BFE0000000000000));
+  CheckValid('inf',UInt64($7FF0000000000000));
+  CheckValid('Infinity',UInt64($7FF0000000000000));
+  CheckValid('-Infinity',UInt64($FFF0000000000000));
+  CheckValid('1e99999',UInt64($7FF0000000000000));
+  CheckValid('-1e-99999',UInt64($8000000000000000));
+  CheckValid('1e18446744073709551617',UInt64($7FF0000000000000));
+  CheckValid('1e-18446744073709551615',UInt64($0000000000000000));
+  CheckValid('1.234567890123456789e3000000',UInt64($7FF0000000000000));
+  CheckValid('1.234567890123456789e-3000000',UInt64($0000000000000000));
+  CheckValid('3.14159265358979323846',UInt64($400921FB54442D18));
+  CheckValid('1234.560000000000000000000',UInt64($40934A3D70A3D70A));
+  CheckValid('2.2250738585072011e-308',UInt64($000FFFFFFFFFFFFF));
+  CheckValid('9007199254740993.0000000000000000000000000001',UInt64($4340000000000001));
+  CheckValid('9007199254740993.0000000000000000000000000000',UInt64($4340000000000000));
+  CheckValid('0.1000000000000000055511151231257827021181583404541015625',UInt64($3FB999999999999A));
+  CheckValid('9234567890123456789012.5',UInt64($447F49B5FA93ACD2));
+  CheckValid('98765432109876543210.0000001',UInt64($44156A9534E3949A));
+  CheckValid('-55555555555555555555555.55555',UInt64($C4A787586C4FA8A0));
+  CheckNaN('nan');
+  CheckNaN('-NaN');
+  CheckNaN('snan');
+end;
+
 procedure TestParser;
 var Path,FileName:string;
     SearchRec:TSearchRec;
@@ -752,6 +826,11 @@ begin
 
   writeln('Running output mode tests . . .');
   TestOutputModes;
+  writeln('Done!');
+  writeln;
+
+  writeln('Running parser validation tests . . .');
+  TestParserValidation;
   writeln('Done!');
   writeln;
 

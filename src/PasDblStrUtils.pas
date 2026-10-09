@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2026-10-09-04-51-0000                       *
+ *                        Version 2026-10-09-05-49-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -2035,6 +2035,42 @@ const // exponent bits = round(4*log2(k)) - 13
       IEEEFormat256:TIEEEFormat=(Bytes:32;Mantissa:236;Explicit:0;Exponent:19);
       IEEEFormat512:TIEEEFormat=(Bytes:64;Mantissa:488;Explicit:0;Exponent:23);
 
+const SpecialFloatKeywordNone=0;
+      SpecialFloatKeywordInfinity=1;
+      SpecialFloatKeywordQNaN=2;
+      SpecialFloatKeywordSNaN=3;
+
+// Matches "inf", "infinity", "nan", "qnan" and "snan" (case-insensitive) at aPosition, the keyword must end the string
+function MatchSpecialFloatKeyword(const aStringValue:PPasDblStrUtilsChar;const aStringLength,aPosition:TPasDblStrUtilsInt32):TPasDblStrUtilsInt32;
+ function Matches(const aKeyword:TPasDblStrUtilsString):TPasDblStrUtilsBoolean;
+ var Index:TPasDblStrUtilsInt32;
+ begin
+  result:=(aPosition+length(aKeyword))=aStringLength;
+  if result then begin
+   for Index:=1 to length(aKeyword) do begin
+    // or $20 maps upper case letters to lower case letters, the keywords are lower case letters only
+    if (TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[aPosition+(Index-1)])) or $20)<>TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aKeyword[Index])) then begin
+     result:=false;
+     break;
+    end;
+   end;
+  end;
+ end;
+begin
+ if (aPosition>=aStringLength) or not (aStringValue[aPosition] in ['i','I','n','N','q','Q','s','S']) then begin
+  // Cheap pre-check, since this is called for every number
+  result:=SpecialFloatKeywordNone;
+ end else if Matches('inf') or Matches('infinity') then begin
+  result:=SpecialFloatKeywordInfinity;
+ end else if Matches('nan') or Matches('qnan') then begin
+  result:=SpecialFloatKeywordQNaN;
+ end else if Matches('snan') then begin
+  result:=SpecialFloatKeywordSNaN;
+ end else begin
+  result:=SpecialFloatKeywordNone;
+ end;
+end;
+
 function StringToFloat(const aFloatString:PPasDblStrUtilsChar;const aFloatStringLength:TPasDblStrUtilsInt32;out aFloatValue;const aIEEEFormat:TIEEEFormat;const RoundMode:TPasDblStrUtilsRoundingMode=rmNearest;const aDenormalsAreZero:TPasDblStrUtilsBoolean=false;const aBase:TPasDblStrUtilsInt32=-1):TPasDblStrUtilsBoolean;
 const LIMB_BITS=32;
       LIMB_BYTES=4;
@@ -2093,10 +2129,11 @@ type PFPLimb=^TFPLimb;
  end;
  function ReadExponent(const aExponentStringValue:PPasDblStrUtilsChar;const aExponentStringLength,aExponentStringStartPosition,aMaxValue:TPasDblStrUtilsInt32):TPasDblStrUtilsInt32;
  var ExponentStringPosition:TPasDblStrUtilsInt32;
-     Negative:TPasDblStrUtilsBoolean;
+     Negative,HasDigits:TPasDblStrUtilsBoolean;
  begin
   result:=0;
   Negative:=false;
+  HasDigits:=false;
   ExponentStringPosition:=aExponentStringStartPosition;
   if (ExponentStringPosition<aExponentStringLength) and (aExponentStringValue[ExponentStringPosition]='+') then begin
    inc(ExponentStringPosition);
@@ -2107,6 +2144,7 @@ type PFPLimb=^TFPLimb;
   while ExponentStringPosition<aExponentStringLength do begin
    case aExponentStringValue[ExponentStringPosition] of
     '0'..'9':begin
+     HasDigits:=true;
      if result<aMaxValue then begin
       result:=(result*10)+(TPasDblStrUtilsUInt8(ansichar(aExponentStringValue[ExponentStringPosition]))-TPasDblStrUtilsUInt8(ansichar('0')));
       if result>aMaxValue then begin
@@ -2121,7 +2159,9 @@ type PFPLimb=^TFPLimb;
    end;
    inc(ExponentStringPosition);
   end;
-  if Negative then begin
+  if not HasDigits then begin
+   result:=$7fffffff;
+  end else if Negative then begin
    result:=-result;
   end;
  end;
@@ -2129,7 +2169,7 @@ type PFPLimb=^TFPLimb;
  var FloatStringPosition,TenPower,TwoPower,ExtraTwos,ExponentValue,MantissaPosition,DigitPos,StoredDigitPos,DigitPosBackwards,
      Value:TPasDblStrUtilsInt32;
      Bit,Carry:TFPLimb;
-     Started,SeenDot{,Warned}:TPasDblStrUtilsBoolean;
+     Started,SeenDot,HasDigits{,Warned}:TPasDblStrUtilsBoolean;
      //m:PFPLimb;
      Digits:array[0..MANT_DIGITS-1] of TPasDblStrUtilsUInt8;
      Mult:TMantissa;
@@ -2139,6 +2179,7 @@ type PFPLimb=^TFPLimb;
   DigitPos:=0;
   Started:=false;
   SeenDot:=false;
+  HasDigits:=false;
   FloatStringPosition:=aFloatStringStartPosition;
   while FloatStringPosition<aFloatStringLength do begin
    case aFloatStringValue[FloatStringPosition] of
@@ -2151,6 +2192,7 @@ type PFPLimb=^TFPLimb;
      end;
     end;
     '0'..'9':begin
+     HasDigits:=true;
      if (aFloatStringValue[FloatStringPosition]='0') and not Started then begin
       if SeenDot then begin
        dec(TenPower);
@@ -2177,6 +2219,10 @@ type PFPLimb=^TFPLimb;
     end;
    end;
    inc(FloatStringPosition);
+  end;
+  if not HasDigits then begin
+   result:=false;
+   exit;
   end;
   if FloatStringPosition<aFloatStringLength then begin
    if aFloatStringValue[FloatStringPosition] in ['e','E'] then begin
@@ -2265,7 +2311,7 @@ type PFPLimb=^TFPLimb;
  function ProcessNonDecimal(const aFloatStringValue:PPasDblStrUtilsChar;const aFloatStringLength:TPasDblStrUtilsInt32;const aFloatStringStartPosition,aBits:TPasDblStrUtilsInt32;out aMantissa:TMantissa;var aExponent:TPasDblStrUtilsInt32):TPasDblStrUtilsBoolean;
  const Log2Table:array[0..15] of TPasDblStrUtilsInt32=(-1,0,1,1,2,2,2,2,3,3,3,3,3,3,3,3);
  var FloatStringPosition,TwoPower,ExponentValue,MantissaPosition,Value,Radix,MantissaShift,l:TPasDblStrUtilsInt32;
-     SeenDigit,SeenDot:TPasDblStrUtilsBoolean;
+     SeenDigit,SeenDot,HasDigits:TPasDblStrUtilsBoolean;
      MantissaPointer:PFPLimb;
      Mult:array[0..MANT_LIMBS] of TFPLimb;
  begin
@@ -2278,6 +2324,7 @@ type PFPLimb=^TFPLimb;
   MantissaPointer:=@Mult[0];
   SeenDigit:=false;
   SeenDot:=false;
+  HasDigits:=false;
   FloatStringPosition:=aFloatStringStartPosition;
   while FloatStringPosition<aFloatStringLength do begin
    case aFloatStringValue[FloatStringPosition] of
@@ -2302,6 +2349,7 @@ type PFPLimb=^TFPLimb;
       exit;
      end;
      if Value<Radix then begin
+      HasDigits:=true;
       if (Value<>0) and not SeenDigit then begin
        l:=Log2Table[Value];
        SeenDigit:=true;
@@ -2346,6 +2394,10 @@ type PFPLimb=^TFPLimb;
     end;
    end;
    inc(FloatStringPosition);
+  end;
+  if not HasDigits then begin
+   result:=false;
+   exit;
   end;
   if FloatStringPosition<aFloatStringLength then begin
    if aFloatStringValue[FloatStringPosition] in ['p','P'] then begin
@@ -2595,77 +2647,81 @@ begin
   inc(FloatStringPosition);
  end;
  ExpMax:=1 shl (aIEEEFormat.Exponent-1);
- if ((FloatStringPosition+2)<aFloatStringLength) and ((aFloatString[FloatStringPosition] in ['I','i']) and (aFloatString[FloatStringPosition+1] in ['N','n']) and (aFloatString[FloatStringPosition+2] in ['F','f'])) then begin
-  FloatType:=FL_INFINITY;
- end else if ((FloatStringPosition+2)<aFloatStringLength) and ((aFloatString[FloatStringPosition] in ['N','n']) and (aFloatString[FloatStringPosition+1] in ['A','a']) and (aFloatString[FloatStringPosition+2] in ['N','n'])) then begin
-  FloatType:=FL_QNAN;
- end else if ((FloatStringPosition+3)<aFloatStringLength) and ((aFloatString[FloatStringPosition] in ['S','s']) and (aFloatString[FloatStringPosition+1] in ['N','n']) and (aFloatString[FloatStringPosition+2] in ['A','a']) and (aFloatString[FloatStringPosition+3] in ['N','n'])) then begin
-  FloatType:=FL_SNAN;
- end else if ((FloatStringPosition+3)<aFloatStringLength) and ((aFloatString[FloatStringPosition] in ['Q','q']) and (aFloatString[FloatStringPosition+1] in ['N','n']) and (aFloatString[FloatStringPosition+2] in ['A','a']) and (aFloatString[FloatStringPosition+3] in ['N','n'])) then begin
-  FloatType:=FL_QNAN;
- end else begin
-  case aBase of
-   2:begin
-    OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,1,Mantissa,Exponent);
-   end;
-   4:begin
-    OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,2,Mantissa,Exponent);
-   end;
-   8:begin
-    OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,3,Mantissa,Exponent);
-   end;
-   10:begin
-    OK:=ProcessDecimal(aFloatString,aFloatStringLength,FloatStringPosition,Mantissa,Exponent);
-   end;
-   16:begin
-    OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,4,Mantissa,Exponent);
-   end;
-   else begin
-    if ((FloatStringPosition+1)<aFloatStringLength) and ((aFloatString[FloatStringPosition]='0') and (aFloatString[FloatStringPosition+1] in ['h','H','x','X'])) then begin
-     inc(FloatStringPosition,2);
-     OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,4,Mantissa,Exponent);
-    end else if ((FloatStringPosition+1)<aFloatStringLength) and ((aFloatString[FloatStringPosition]='0') and (aFloatString[FloatStringPosition+1] in ['o','O','q','Q'])) then begin
-     inc(FloatStringPosition,2);
-     OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,3,Mantissa,Exponent);
-    end else if ((FloatStringPosition+1)<aFloatStringLength) and ((aFloatString[FloatStringPosition]='0') and (aFloatString[FloatStringPosition+1] in ['b','B','y','Y'])) then begin
-     inc(FloatStringPosition,2);
+ OK:=true;
+ case MatchSpecialFloatKeyword(aFloatString,aFloatStringLength,FloatStringPosition) of
+  SpecialFloatKeywordInfinity:begin
+   FloatType:=FL_INFINITY;
+  end;
+  SpecialFloatKeywordQNaN:begin
+   FloatType:=FL_QNAN;
+  end;
+  SpecialFloatKeywordSNaN:begin
+   FloatType:=FL_SNAN;
+  end;
+  else begin
+   case aBase of
+    2:begin
      OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,1,Mantissa,Exponent);
-    end else if ((FloatStringPosition+1)<aFloatStringLength) and ((aFloatString[FloatStringPosition]='0') and (aFloatString[FloatStringPosition+1] in ['d','D','t','T'])) then begin
-     inc(FloatStringPosition,2);
-     OK:=ProcessDecimal(aFloatString,aFloatStringLength,FloatStringPosition,Mantissa,Exponent);
-    end else if ((FloatStringPosition+1)<aFloatStringLength) and ((aFloatString[FloatStringPosition]='0') and (aFloatString[FloatStringPosition+1] in ['p','P'])) then begin
-     inc(FloatStringPosition,2);
-     result:=ProcessToPackedBCD(aFloatString,aFloatStringLength,FloatStringPosition,pointer(@aFloatValue),Negative);
-     exit;
-    end else if (FloatStringPosition<aFloatStringLength) and (aFloatString[FloatStringPosition]='$') then begin
-     inc(FloatStringPosition);
-     OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,4,Mantissa,Exponent);
-    end else if (FloatStringPosition<aFloatStringLength) and (aFloatString[FloatStringPosition]='&') then begin
-     inc(FloatStringPosition);
+    end;
+    4:begin
+     OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,2,Mantissa,Exponent);
+    end;
+    8:begin
      OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,3,Mantissa,Exponent);
-    end else if (FloatStringPosition<aFloatStringLength) and (aFloatString[FloatStringPosition]='%') then begin
-     inc(FloatStringPosition);
-     OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,1,Mantissa,Exponent);
-    end else begin
+    end;
+    10:begin
      OK:=ProcessDecimal(aFloatString,aFloatStringLength,FloatStringPosition,Mantissa,Exponent);
     end;
+    16:begin
+     OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,4,Mantissa,Exponent);
+    end;
+    else begin
+     if ((FloatStringPosition+1)<aFloatStringLength) and ((aFloatString[FloatStringPosition]='0') and (aFloatString[FloatStringPosition+1] in ['h','H','x','X'])) then begin
+      inc(FloatStringPosition,2);
+      OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,4,Mantissa,Exponent);
+     end else if ((FloatStringPosition+1)<aFloatStringLength) and ((aFloatString[FloatStringPosition]='0') and (aFloatString[FloatStringPosition+1] in ['o','O','q','Q'])) then begin
+      inc(FloatStringPosition,2);
+      OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,3,Mantissa,Exponent);
+     end else if ((FloatStringPosition+1)<aFloatStringLength) and ((aFloatString[FloatStringPosition]='0') and (aFloatString[FloatStringPosition+1] in ['b','B','y','Y'])) then begin
+      inc(FloatStringPosition,2);
+      OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,1,Mantissa,Exponent);
+     end else if ((FloatStringPosition+1)<aFloatStringLength) and ((aFloatString[FloatStringPosition]='0') and (aFloatString[FloatStringPosition+1] in ['d','D','t','T'])) then begin
+      inc(FloatStringPosition,2);
+      OK:=ProcessDecimal(aFloatString,aFloatStringLength,FloatStringPosition,Mantissa,Exponent);
+     end else if ((FloatStringPosition+1)<aFloatStringLength) and ((aFloatString[FloatStringPosition]='0') and (aFloatString[FloatStringPosition+1] in ['p','P'])) then begin
+      inc(FloatStringPosition,2);
+      result:=ProcessToPackedBCD(aFloatString,aFloatStringLength,FloatStringPosition,pointer(@aFloatValue),Negative);
+      exit;
+     end else if (FloatStringPosition<aFloatStringLength) and (aFloatString[FloatStringPosition]='$') then begin
+      inc(FloatStringPosition);
+      OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,4,Mantissa,Exponent);
+     end else if (FloatStringPosition<aFloatStringLength) and (aFloatString[FloatStringPosition]='&') then begin
+      inc(FloatStringPosition);
+      OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,3,Mantissa,Exponent);
+     end else if (FloatStringPosition<aFloatStringLength) and (aFloatString[FloatStringPosition]='%') then begin
+      inc(FloatStringPosition);
+      OK:=ProcessNonDecimal(aFloatString,aFloatStringLength,FloatStringPosition,1,Mantissa,Exponent);
+     end else begin
+      OK:=ProcessDecimal(aFloatString,aFloatStringLength,FloatStringPosition,Mantissa,Exponent);
+     end;
+    end;
    end;
-  end;
-  if OK then begin
-   if (Mantissa[0] and LIMB_TOP_BIT)<>0 then begin
-    dec(Exponent);
-    if (Exponent>=(2-ExpMax)) and (Exponent<=ExpMax) then begin
-     FloatType:=FL_NORMAL;
-    end else if Exponent>0 then begin
-     FloatType:=FL_INFINITY;
+   if OK then begin
+    if (Mantissa[0] and LIMB_TOP_BIT)<>0 then begin
+     dec(Exponent);
+     if (Exponent>=(2-ExpMax)) and (Exponent<=ExpMax) then begin
+      FloatType:=FL_NORMAL;
+     end else if Exponent>0 then begin
+      FloatType:=FL_INFINITY;
+     end else begin
+      FloatType:=FL_DENORMAL;
+     end;
     end else begin
-     FloatType:=FL_DENORMAL;
+     FloatType:=FL_ZERO;
     end;
    end else begin
-    FloatType:=FL_ZERO;
+    FloatType:=FL_QNAN;
    end;
-  end else begin
-   FloatType:=FL_QNAN;
   end;
  end;
  repeat
@@ -2733,7 +2789,7 @@ begin
   b^:=Mantissa[i shr LIMB_BYTES_SHIFT] shr ((LIMB_BYTES_MASK-(i and LIMB_BYTES_MASK)) shl 3);
   inc(b);
  end;
- result:=true;
+ result:=OK;
 end;
 
 {$if defined(CPU64) or defined(CPUx86_64) or defined(CPUAArch64)}
@@ -3271,7 +3327,7 @@ var OK:TPasDblStrUtilsBoolean;
     IEEEExponent,Count,FullExp,ExpOfs:TPasDblStrUtilsInt32;
     IEEEMantissa:TPasDblStrUtilsUInt64;
     ui128:TPasDblStrUtilsUInt128;
-    SignedMantissa,RoundNearestEven,HasResult:TPasDblStrUtilsBoolean;
+    SignedMantissa,RoundNearestEven,HasResult,MantissaIsNonZero:TPasDblStrUtilsBoolean;
     RoundIncrement,RoundBits:TPasDblStrUtilsInt16;
     IEEEFormat:PIEEEFormat;
 begin
@@ -3312,6 +3368,7 @@ begin
             (TPasDblStrUtilsUInt128(TemporaryFloat[0] and TPasDblStrUtilsUInt64($ffffffffffffffff)) shl 16);
      IEEEExponent:=(TemporaryFloat[1] shr 48) and $7fff;
      SignedMantissa:=(TemporaryFloat[1] shr 63)<>0;
+     MantissaIsNonZero:=((TemporaryFloat[1] and TPasDblStrUtilsUInt64($0000ffffffffffff)) or TemporaryFloat[0])<>0;
      FullExp:=$7fff;
      ExpOfs:=$3c01;
     end;
@@ -3321,6 +3378,7 @@ begin
             (TPasDblStrUtilsUInt128(TemporaryFloat[1] and TPasDblStrUtilsUInt64($fffff00000000000)) shr 44);
      IEEEExponent:=(TemporaryFloat[3] shr 44) and $7ffff;
      SignedMantissa:=(TemporaryFloat[3] shr 63)<>0;
+     MantissaIsNonZero:=((TemporaryFloat[3] and TPasDblStrUtilsUInt64($00000fffffffffff)) or TemporaryFloat[2] or TemporaryFloat[1] or TemporaryFloat[0])<>0;
      FullExp:=$7ffff;
      ExpOfs:=$3fc01;
     end;
@@ -3330,6 +3388,8 @@ begin
             (TPasDblStrUtilsUInt128(TemporaryFloat[5] and TPasDblStrUtilsUInt64($ffffff0000000000)) shr 40);
      IEEEExponent:=(TemporaryFloat[7] shr 40) and $7fffff;
      SignedMantissa:=(TemporaryFloat[7] shr 63)<>0;
+     MantissaIsNonZero:=((TemporaryFloat[7] and TPasDblStrUtilsUInt64($000000ffffffffff)) or TemporaryFloat[6] or TemporaryFloat[5] or TemporaryFloat[4] or
+                         TemporaryFloat[3] or TemporaryFloat[2] or TemporaryFloat[1] or TemporaryFloat[0])<>0;
      FullExp:=$7fffff;
      ExpOfs:=$3ffc01;
     end;
@@ -3338,8 +3398,14 @@ begin
     end;
    end;
    if IEEEExponent=FullExp then begin
-    if ui128<>0 then begin
-     result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff0000000000000) or TPasDblStrUtilsUInt64(ui128.Hi) or (TPasDblStrUtilsUInt64(SignedMantissa) shl 63)); // -/+(Q|S)NaN
+    if MantissaIsNonZero then begin
+     // ui128 holds the mantissa aligned to its top bit, so its upper 52 bits are the double mantissa
+     IEEEMantissa:=ui128.Hi shr 12;
+     if IEEEMantissa=0 then begin
+      // The payload lies completely below the double precision (signaling NaN), so it must stay non-zero to remain a NaN
+      IEEEMantissa:=1;
+     end;
+     result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff0000000000000) or IEEEMantissa or (TPasDblStrUtilsUInt64(SignedMantissa) shl 63)); // -/+(Q|S)NaN
     end else begin
      result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff0000000000000) or (TPasDblStrUtilsUInt64(SignedMantissa) shl 63)); // -/+Inf
     end;
@@ -3432,6 +3498,7 @@ const DOUBLE_MANTISSA_BITS=52;
       RoundNone=0;
       RoundByRemainder=1;
       RoundUnderflow=2;
+      MaximumExponentValue=TPasDblStrUtilsInt64(1) shl 40; // far outside of the double range even after the adjustment by the digit count
 type TPowerTable=array[1..16] of TPasDblStrUtilsUInt32;
      PPowerTable=^TPowerTable;
      TAllowedChars=set of TPasDblStrUtilsChar;
@@ -3533,7 +3600,7 @@ const Power2Table:TPowerTable=
 var Index,Position,
     uParserBufferSize,uParserBufferLimit,
     RoundMode,Exponent,Cmp,Log2U,Log2V,UShift,VShift,Log2Ratio,
-    BitLen,LeastSignificantBit:TPasDblStrUtilsInt32;
+    BitLen,LeastSignificantBit,Log2BaseFloor:TPasDblStrUtilsInt32;
     Remainder,u,v,x:TPasDblStrUtilsBigUnsignedInteger;
     uParserBuffer,Base:TPasDblStrUtilsUInt32;
     uExponent,ExponentValue,IEEEExponent:TPasDblStrUtilsInt64;
@@ -3558,22 +3625,30 @@ begin
   inc(Position);
  end;
 
- if (Position+2)<aStringLength then begin
-  if (aStringValue[Position] in ['n','N']) and
-     (aStringValue[Position+1] in ['a','A']) and
-     (aStringValue[Position+2] in ['n','N']) then begin
+ case MatchSpecialFloatKeyword(aStringValue,aStringLength,Position) of
+  SpecialFloatKeywordQNaN:begin
    if SignedMantissa then begin
-    result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($fff8000000000000)); // -NaN
+    result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($fff8000000000000)); // -QNaN
    end else begin
-    result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // +NaN
+    result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // +QNaN
    end;
    if assigned(aOK) then begin
     aOK^:=true;
    end;
    exit;
-  end else if (aStringValue[Position] in ['i','I']) and
-              (aStringValue[Position+1] in ['n','N']) and
-              (aStringValue[Position+2] in ['f','F']) then begin
+  end;
+  SpecialFloatKeywordSNaN:begin
+   if SignedMantissa then begin
+    result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($ffffffffffffffff)); // -SNaN
+   end else begin
+    result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7fffffffffffffff)); // +SNaN
+   end;
+   if assigned(aOK) then begin
+    aOK^:=true;
+   end;
+   exit;
+  end;
+  SpecialFloatKeywordInfinity:begin
    if SignedMantissa then begin
     result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($fff0000000000000)); // -Inf
    end else begin
@@ -3584,30 +3659,8 @@ begin
    end;
    exit;
   end;
- end;
-
- if ((Position+3)<aStringLength) and
-    (aStringValue[Position] in ['q','Q','s','S']) and
-    (aStringValue[Position+1] in ['n','N']) and
-    (aStringValue[Position+2] in ['a','A']) and
-    (aStringValue[Position+3] in ['n','N']) then begin
-  if aStringValue[Position] in ['q','Q'] then begin
-   if SignedMantissa then begin
-    result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($fff8000000000000)); // -QNaN
-   end else begin
-    result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // +QNaN
-   end;
-  end else begin
-   if SignedMantissa then begin
-    result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($ffffffffffffffff)); // -SNaN
-   end else begin
-    result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7fffffffffffffff)); // +SNaN
-   end;
+  else begin
   end;
-  if assigned(aOK) then begin
-   aOK^:=true;
-  end;
-  exit;
  end;
 
  if aBase<0 then begin
@@ -3816,7 +3869,10 @@ begin
   if (Position<aStringLength) and (aStringValue[Position] in ['0'..'9']) then begin
    ExponentValue:=0;
    repeat
-    ExponentValue:=(ExponentValue*10)+TPasDblStrUtilsInt32(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[Position]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('0')));
+    if ExponentValue<MaximumExponentValue then begin
+     // Saturate instead of overflowing, an overflown exponent could wrap around into the valid range
+     ExponentValue:=(ExponentValue*10)+TPasDblStrUtilsInt32(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[Position]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('0')));
+    end;
     inc(Position);
    until (Position>=aStringLength) or not (aStringValue[Position] in ['0'..'9']);
    if SignedExponent then begin
@@ -3842,6 +3898,40 @@ begin
  end;
 
  if Position>=aStringLength then begin
+
+  // Exponents far outside of the double range are decided here already, otherwise the big integer
+  // arithmetic below would compute giant powers for nothing, which costs quadratic time in the exponent.
+  // floor(log2(Base)) gives a safe lower bound of the magnitude for the overflow check, and also a safe
+  // upper bound for the underflow check, since the exponent is negative there.
+  case Base of
+   2:begin
+    Log2BaseFloor:=1;
+   end;
+   4:begin
+    Log2BaseFloor:=2;
+   end;
+   8,10:begin
+    Log2BaseFloor:=3;
+   end;
+   else {16:}begin
+    Log2BaseFloor:=4;
+   end;
+  end;
+  if (uExponent>0) and (((u.Bits-1)+(uExponent*Log2BaseFloor))>=1025) then begin
+   // At least 2^1025, so it overflows to infinity
+   result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff0000000000000) or (TPasDblStrUtilsUInt64(ord(SignedMantissa) and 1) shl 63)); // -/+Inf
+   if assigned(aOK) then begin
+    aOK^:=true;
+   end;
+   exit;
+  end else if (uExponent<0) and ((u.Bits+(uExponent*Log2BaseFloor))<(-1076)) then begin
+   // Below 2^-1076, so less than the half of the smallest subnormal, which rounds to zero
+   result:=UInt64Bits2Double(TPasDblStrUtilsUInt64(TPasDblStrUtilsUInt64(ord(SignedMantissa) and 1) shl 63)); // +/- 0
+   if assigned(aOK) then begin
+    aOK^:=true;
+   end;
+   exit;
+  end;
 
   v:=1;
 
@@ -3915,6 +4005,9 @@ begin
    end;
    if Exponent>MAX_EXP_INT then begin
     result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff0000000000000) or (TPasDblStrUtilsUInt64(ord(SignedMantissa) and 1) shl 63)); // -/+Inf
+    if assigned(aOK) then begin
+     aOK^:=true;
+    end;
     exit;
    end;
    if x.Compare(MIN_SIG)<0 then begin
@@ -4755,12 +4848,33 @@ begin
  end;
 end;
 
+// For a mantissa w, which was truncated from a longer digit sequence: The exact value lies between w*10^e and (w+1)*10^e,
+// and since the rounding is monotonic, it rounds to the same double as both bounds, when these both round to the same double.
+// It is a separate function, so that it doesn't burden the stack frame of the hot path in EiselLemireStringToDouble.
+function ComputeFloat64Truncated(const aBase10Exponent:TPasDblStrUtilsInt64;const aBase10Mantissa:TPasDblStrUtilsUInt64;const aNegative:TPasDblStrUtilsBoolean;const aSuccess:PPasDblStrUtilsBoolean):TPasDblStrUtilsDouble;
+var OK,UpperOK:TPasDblStrUtilsBoolean;
+    UpperResult:TPasDblStrUtilsDouble;
+begin
+ result:=ComputeFloat64(aBase10Exponent,aBase10Mantissa,aNegative,@OK);
+ if OK then begin
+  UpperResult:=ComputeFloat64(aBase10Exponent,aBase10Mantissa+1,aNegative,@UpperOK);
+  OK:=UpperOK and (PPasDblStrUtilsUInt64(@result)^=PPasDblStrUtilsUInt64(@UpperResult)^);
+ end;
+ if not OK then begin
+  result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
+ end;
+ if assigned(aSuccess) then begin
+  aSuccess^:=OK;
+ end;
+end;
+
 function EiselLemireStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringLength:TPasDblStrUtilsInt32;const aOK:PPasDblStrUtilsBoolean=nil):TPasDblStrUtilsDouble;
-const Base10MantissaLimit=TPasDblStrUtilsUInt64(999999999999999990);
+const Base10MantissaLimit=TPasDblStrUtilsUInt64(1000000000000000000); // below 10^18 one more digit still fits, so up to 19 digits are taken, and 9999999999999999999+1 still fits into an unsigned 64-bit integer
+      MaximumExponentValue=TPasDblStrUtilsInt64(1) shl 40; // far outside of the double range even after the adjustment by the digit count
 var StringPosition:TPasDblStrUtilsInt32;
     Base10Mantissa:TPasDblStrUtilsUInt64;
     Base10Exponent,ExponentValue:TPasDblStrUtilsInt64;
-    HasDigits,Negative,ExponentNegative:boolean;
+    HasDigits,Negative,ExponentNegative,Truncated:boolean;
     c:TPasDblStrUtilsChar;
 begin
 
@@ -4768,32 +4882,39 @@ begin
  StringPosition:=0;
  Base10Mantissa:=0;
  Base10Exponent:=0;
+ Truncated:=false;
 
  while (StringPosition<aStringLength) and (aStringValue[StringPosition] in ['-','+']) do begin
   Negative:=Negative xor (aStringValue[StringPosition]='-');
   inc(StringPosition);
  end;
 
+ // Only the first significant digits are taken into the mantissa, the remaining ones are only noted by Truncated
+ // when they are non-zero, see the w and w+1 check at the end for that case. These remaining digits are handled
+ // by separate loops, so that the hot loops stay as small as possible.
  HasDigits:=(StringPosition<aStringLength) and (aStringValue[StringPosition] in ['0'..'9']);
  if HasDigits then begin
   while StringPosition<aStringLength do begin
    c:=aStringValue[StringPosition];
    case c of
     '0'..'9':begin
-     Base10Mantissa:=(Base10Mantissa*10)+TPasDblStrUtilsUInt64(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[StringPosition]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('0')));
      if Base10Mantissa>=Base10MantissaLimit then begin
-      result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
-      if assigned(aOK) then begin
-       aOK^:=false;
-      end;
-      exit;
+      break;
      end;
+     Base10Mantissa:=(Base10Mantissa*10)+TPasDblStrUtilsUInt64(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(c))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('0')));
      inc(StringPosition);
     end;
     else begin
      break;
     end;
    end;
+  end;
+  while (StringPosition<aStringLength) and (aStringValue[StringPosition] in ['0'..'9']) do begin
+   if aStringValue[StringPosition]<>'0' then begin
+    Truncated:=true;
+   end;
+   inc(Base10Exponent);
+   inc(StringPosition);
   end;
  end;
 
@@ -4805,14 +4926,10 @@ begin
     c:=aStringValue[StringPosition];
     case c of
      '0'..'9':begin
-      Base10Mantissa:=(Base10Mantissa*10)+TPasDblStrUtilsUInt64(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[StringPosition]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('0')));
       if Base10Mantissa>=Base10MantissaLimit then begin
-       result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
-       if assigned(aOK) then begin
-        aOK^:=false;
-       end;
-       exit;
+       break;
       end;
+      Base10Mantissa:=(Base10Mantissa*10)+TPasDblStrUtilsUInt64(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(c))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('0')));
       inc(StringPosition);
       dec(Base10Exponent);
      end;
@@ -4820,6 +4937,12 @@ begin
       break;
      end;
     end;
+   end;
+   while (StringPosition<aStringLength) and (aStringValue[StringPosition] in ['0'..'9']) do begin
+    if aStringValue[StringPosition]<>'0' then begin
+     Truncated:=true;
+    end;
+    inc(StringPosition);
    end;
   end;
  end;
@@ -4843,7 +4966,10 @@ begin
   if (StringPosition<aStringLength) and (aStringValue[StringPosition] in ['0'..'9']) then begin
    ExponentValue:=0;
    repeat
-    ExponentValue:=(ExponentValue*10)+TPasDblStrUtilsInt32(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[StringPosition]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('0')));
+    if ExponentValue<MaximumExponentValue then begin
+     // Saturate instead of overflowing, an overflown exponent could wrap around into the valid range
+     ExponentValue:=(ExponentValue*10)+TPasDblStrUtilsInt32(TPasDblStrUtilsUInt8(TPasDblStrUtilsChar(aStringValue[StringPosition]))-TPasDblStrUtilsUInt8(TPasDblStrUtilsChar('0')));
+    end;
     inc(StringPosition);
    until (StringPosition>=aStringLength) or not (aStringValue[StringPosition] in ['0'..'9']);
    if ExponentNegative then begin
@@ -4865,7 +4991,11 @@ begin
  end;
 
  if StringPosition>=aStringLength then begin
-  result:=ComputeFloat64(Base10Exponent,Base10Mantissa,Negative,aOK);
+  if Truncated then begin
+   result:=ComputeFloat64Truncated(Base10Exponent,Base10Mantissa,Negative,aOK);
+  end else begin
+   result:=ComputeFloat64(Base10Exponent,Base10Mantissa,Negative,aOK);
+  end;
  end else begin
   result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
   if assigned(aOK) then begin
@@ -4884,13 +5014,13 @@ function RyuStringToDouble(const aStringValue:PPasDblStrUtilsChar;const aStringL
 const DOUBLE_MANTISSA_BITS=52;
       DOUBLE_EXPONENT_BITS=11;
       DOUBLE_EXPONENT_BIAS=1023;
-var CountBase10MantissaDigits,ExtraCountBase10MantissaDigits,CountBase10ExponentDigits,
+var CountBase10MantissaDigits,ExtraCountBase10MantissaDigits,SignificantExtraCountBase10MantissaDigits,CountBase10ExponentDigits,
     DotPosition,ExponentPosition,
     Base10MantissaBits,Base2MantissaBits,
     Base10Exponent,Position,Base2Exponent,Shift,Temporary,Exponent:TPasDblStrUtilsInt32;
     Base10Mantissa,Base2Mantissa,IEEEMantissa:TPasDblStrUtilsUInt64;
     IEEEExponent,LastRemovedBit:TPasDblStrUtilsUInt32;
-    SignedMantissa,SignedExponent,TrailingZeros,RoundUp:boolean;
+    SignedMantissa,SignedExponent,TrailingZeros,RoundUp,HasDigits,HasExponentDigits,ExponentOverflow:boolean;
     c:AnsiChar;
 begin
  if assigned(aOK) then begin
@@ -4902,6 +5032,7 @@ begin
  end;
  CountBase10MantissaDigits:=0;
  ExtraCountBase10MantissaDigits:=0;
+ SignificantExtraCountBase10MantissaDigits:=0;
  CountBase10ExponentDigits:=0;
  DotPosition:=aStringLength;
  ExponentPosition:=aStringLength;
@@ -4909,6 +5040,9 @@ begin
  Base10Exponent:=0;
  SignedMantissa:=false;
  SignedExponent:=false;
+ HasDigits:=false;
+ HasExponentDigits:=false;
+ ExponentOverflow:=false;
  Position:=0;
  while (Position<aStringLength) and (aStringValue[Position] in [#0..#32]) do begin
   inc(Position);
@@ -4919,10 +5053,8 @@ begin
   end;
   inc(Position);
  end;
- if (Position+2)<aStringLength then begin
-  if (aStringValue[Position] in ['n','N']) and
-     (aStringValue[Position+1] in ['a','A']) and
-     (aStringValue[Position+2] in ['n','N']) then begin
+ case MatchSpecialFloatKeyword(aStringValue,aStringLength,Position) of
+  SpecialFloatKeywordQNaN:begin
    if SignedMantissa then begin
     result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($fff8000000000000)); // -NaN
    end else begin
@@ -4932,9 +5064,8 @@ begin
     aOK^:=true;
    end;
    exit;
-  end else if (aStringValue[Position] in ['i','I']) and
-              (aStringValue[Position+1] in ['n','N']) and
-              (aStringValue[Position+2] in ['f','F']) then begin
+  end;
+  SpecialFloatKeywordInfinity:begin
    if SignedMantissa then begin
     result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($fff0000000000000)); // -Inf
    end else begin
@@ -4944,6 +5075,9 @@ begin
     aOK^:=true;
    end;
    exit;
+  end;
+  else begin
+   // Signaling NaNs are left to the other parsers
   end;
  end;
  while Position<aStringLength do begin
@@ -4957,6 +5091,7 @@ begin
     DotPosition:=Position;
    end;
    '0'..'9':begin
+    HasDigits:=true;
     if CountBase10MantissaDigits<17 then begin
      Base10Mantissa:=(Base10Mantissa*10)+TPasDblStrUtilsUInt64(TPasDblStrUtilsUInt8(AnsiChar(c))-TPasDblStrUtilsUInt8(AnsiChar('0')));
      if Base10Mantissa<>0 then begin
@@ -4964,6 +5099,10 @@ begin
      end;
     end else begin
      inc(ExtraCountBase10MantissaDigits);
+     if c<>'0' then begin
+      // Trailing zeros behind the taken digits don't count, since they don't affect the exactness
+      SignificantExtraCountBase10MantissaDigits:=ExtraCountBase10MantissaDigits;
+     end;
     end;
    end;
    else begin
@@ -4971,6 +5110,10 @@ begin
    end;
   end;
   inc(Position);
+ end;
+ if not HasDigits then begin
+  result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
+  exit;
  end;
  if (Position<aStringLength) and (aStringValue[Position] in ['e','E']) then begin
   ExponentPosition:=Position;
@@ -4983,28 +5126,16 @@ begin
    c:=aStringValue[Position];
    case c of
     '0'..'9':begin
+     HasExponentDigits:=true;
      if CountBase10ExponentDigits>3 then begin
-      if SignedExponent or (Base10Mantissa=0) then begin
-       if SignedMantissa then begin
-        result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($8000000000000000)); // -0
-       end else begin
-        result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($0000000000000000)); // +0
-       end;
-      end else begin
-       if SignedMantissa then begin
-        result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($fff0000000000000)); // -Inf
-       end else begin
-        result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff0000000000000)); // +Inf
-       end;
+      // The exponent has more than four significant digits, the result is zero or infinity then,
+      // but the rest of the string must be still validated
+      ExponentOverflow:=true;
+     end else begin
+      Base10Exponent:=(Base10Exponent*10)+(TPasDblStrUtilsUInt8(AnsiChar(c))-TPasDblStrUtilsUInt8(AnsiChar('0')));
+      if Base10Exponent<>0 then begin
+       inc(CountBase10ExponentDigits);
       end;
-      if assigned(aOK) then begin
-       aOK^:=true;
-      end;
-      exit;
-     end;
-     Base10Exponent:=(Base10Exponent*10)+(TPasDblStrUtilsUInt8(AnsiChar(c))-TPasDblStrUtilsUInt8(AnsiChar('0')));
-     if Base10Exponent<>0 then begin
-      inc(CountBase10ExponentDigits);
      end;
     end;
     else begin
@@ -5014,9 +5145,32 @@ begin
    end;
    inc(Position);
   end;
+  if not HasExponentDigits then begin
+   result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
+   exit;
+  end;
  end;
  if Position<aStringLength then begin
   result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff8000000000000)); // NaN
+  exit;
+ end;
+ if ExponentOverflow then begin
+  if SignedExponent or (Base10Mantissa=0) then begin
+   if SignedMantissa then begin
+    result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($8000000000000000)); // -0
+   end else begin
+    result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($0000000000000000)); // +0
+   end;
+  end else begin
+   if SignedMantissa then begin
+    result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($fff0000000000000)); // -Inf
+   end else begin
+    result:=UInt64Bits2Double(TPasDblStrUtilsUInt64($7ff0000000000000)); // +Inf
+   end;
+  end;
+  if assigned(aOK) then begin
+   aOK^:=true;
+  end;
   exit;
  end;
  if SignedExponent then begin
@@ -5110,7 +5264,7 @@ begin
   aOK^:=true;
  end;
  if assigned(aCountDigits) then begin
-  aCountDigits^:=CountBase10MantissaDigits+ExtraCountBase10MantissaDigits;;
+  aCountDigits^:=CountBase10MantissaDigits+SignificantExtraCountBase10MantissaDigits;
  end;
 end;
 
