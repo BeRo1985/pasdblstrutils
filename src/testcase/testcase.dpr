@@ -446,6 +446,95 @@ begin
   CheckNaN('snan');
 end;
 
+procedure TestRadixParsing;
+ procedure CheckAllModes(const aString:RawByteString;const aBase:Int32;const aExpectedBits:UInt64);
+ var RoundingMode:TPasDblStrUtilsRoundingMode;
+     OK:boolean;
+     Value:Double;
+ begin
+  // Exactly representable values, so that every rounding mode must give the same result
+  for RoundingMode:=low(TPasDblStrUtilsRoundingMode) to high(TPasDblStrUtilsRoundingMode) do begin
+   Value:=ConvertStringToDouble(aString,RoundingMode,@OK,aBase);
+   if (not OK) or (UInt64(Pointer(@Value)^)<>aExpectedBits) then begin
+    writeln('Failed: "',aString,'" base ',aBase,' rounding mode ',ord(RoundingMode),' -> ',OK,' ',IntToHex(UInt64(Pointer(@Value)^),16),' <> ',IntToHex(aExpectedBits,16));
+   end;
+  end;
+ end;
+ procedure CheckInvalid(const aString:RawByteString;const aBase:Int32);
+ var RoundingMode:TPasDblStrUtilsRoundingMode;
+     OK:boolean;
+ begin
+  for RoundingMode:=low(TPasDblStrUtilsRoundingMode) to high(TPasDblStrUtilsRoundingMode) do begin
+   ConvertStringToDouble(aString,RoundingMode,@OK,aBase);
+   if OK then begin
+    writeln('Failed: "',aString,'" base ',aBase,' rounding mode ',ord(RoundingMode),' accepted');
+   end;
+  end;
+ end;
+ procedure CheckRoundTrip(const aValue:Double;const aBase:Int32);
+ var OK:boolean;
+     Value:Double;
+     Text:RawByteString;
+ begin
+  Text:=ConvertDoubleToString(aValue,omRadix,aBase);
+  Value:=ConvertStringToDouble(Text,rmNearest,@OK,aBase);
+  if (not OK) or (UInt64(Pointer(@Value)^)<>UInt64(Pointer(@aValue)^)) then begin
+   writeln('Failed: omRadix round trip base ',aBase,' of ',IntToHex(UInt64(Pointer(@aValue)^),16),' via "',Text,'" -> ',OK,' ',IntToHex(UInt64(Pointer(@Value)^),16));
+  end;
+ end;
+const RoundTripValues:array[0..10] of UInt64=(
+       UInt64($4028000000000000),
+       UInt64($46293E5939A08CEA),
+       UInt64($3F1A36E2EB1C432D),
+       UInt64($3BE4A90CEAFFF9DF),
+       UInt64($3FD5555555555555),
+       UInt64($400921FB54442D18),
+       UInt64($01A56E1FC2F8F359),
+       UInt64($0000000000000001),
+       UInt64($7FEFFFFFFFFFFFFF),
+       UInt64($C004000000000000),
+       UInt64($0010000000000000)
+      );
+      RoundTripBases:array[0..3] of Int32=(2,4,8,16);
+var ValueIndex,BaseIndex:Int32;
+begin
+  CheckAllModes('0x1p3',-1,UInt64($4020000000000000));
+  CheckAllModes('0X1.8p3',-1,UInt64($4028000000000000));
+  CheckAllModes('0x1.8',-1,UInt64($3FF8000000000000));
+  CheckAllModes('-0x1p-2',-1,UInt64($BFD0000000000000));
+  CheckAllModes('0x10.1p0',-1,UInt64($4030100000000000));
+  CheckAllModes('0x1.2p3',-1,UInt64($4022000000000000));
+  CheckAllModes('$1p3',-1,UInt64($40B0000000000000));
+  CheckAllModes('0h1p3',-1,UInt64($40B0000000000000));
+  CheckAllModes('1p3',16,UInt64($40B0000000000000));
+  CheckAllModes('c.9f2c9cd04675p+24',16,UInt64($46293E5939A08CEA));
+  CheckAllModes('0o1p3',-1,UInt64($4080000000000000));
+  CheckAllModes('&1p3',-1,UInt64($4080000000000000));
+  CheckAllModes('1p3',8,UInt64($4080000000000000));
+  CheckAllModes('0b1p3',-1,UInt64($4020000000000000));
+  CheckAllModes('%1p3',-1,UInt64($4020000000000000));
+  CheckAllModes('1p3',2,UInt64($4020000000000000));
+  CheckAllModes('1p3',4,UInt64($4050000000000000));
+  CheckAllModes('0x0.8',-1,UInt64($3FE0000000000000));
+  CheckAllModes('0x0.01',-1,UInt64($3F70000000000000));
+  CheckAllModes('0b0.1',-1,UInt64($3FE0000000000000));
+  CheckAllModes('0o0.4',-1,UInt64($3FE0000000000000));
+  CheckAllModes('$0.8',-1,UInt64($3FE0000000000000));
+  CheckAllModes('0X.a541bF7110FeE',-1,UInt64($3FE4A837EE221FDC));
+  CheckInvalid('1p3',10);
+  CheckInvalid('0b1e3',-1);
+  CheckInvalid('1e3',8);
+  CheckInvalid('0x',-1);
+  CheckInvalid('0x1p',-1);
+  CheckInvalid('0x1p+',-1);
+  CheckInvalid('0x1.8p3x',-1);
+ for ValueIndex:=low(RoundTripValues) to high(RoundTripValues) do begin
+  for BaseIndex:=low(RoundTripBases) to high(RoundTripBases) do begin
+   CheckRoundTrip(Double(Pointer(@RoundTripValues[ValueIndex])^),RoundTripBases[BaseIndex]);
+  end;
+ end;
+end;
+
 procedure TestParser;
 var Path,FileName:string;
     SearchRec:TSearchRec;
@@ -831,6 +920,11 @@ begin
 
   writeln('Running parser validation tests . . .');
   TestParserValidation;
+  writeln('Done!');
+  writeln;
+
+  writeln('Running radix parsing tests . . .');
+  TestRadixParsing;
   writeln('Done!');
   writeln;
 
