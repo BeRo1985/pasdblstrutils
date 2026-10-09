@@ -1,12 +1,12 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2021-06-21-01-13-0000                       *
+ *                        Version 2026-10-09-03-45-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
  *                                                                            *
- * Copyright (C) 2016-2021, Benjamin Rosseaux (benjamin@rosseaux.de)          *
+ * Copyright (C) 2016-2026, Benjamin Rosseaux (benjamin@rosseaux.de)          *
  *                                                                            *
  * This software is provided 'as-is', without any express or implied          *
  * warranty. In no event will the authors be held liable for any damages      *
@@ -51,6 +51,11 @@
  unit PasDblStrUtils;
 {$ifdef fpc}
  {$mode delphi}
+ {$if FPC_FULLVERSION>=30301}
+  // Delphi mode turns excess precision on since FPC 3.3.1: double expressions are then computed in
+  // extended over the x87 and rounded twice, so that the fast path of the parser misses by one ulp
+  {$excessprecision off}
+ {$ifend}
  {$ifdef cpui386}
   {$define cpu386}
  {$endif}
@@ -7273,6 +7278,7 @@ type TDoubleValue=record
     if ((One.Exponent>=-60) and QWordLess(Fractionals,One.SignificantMantissa)) and QWordGreaterOrEqual(TPasDblStrUtilsUInt64($1999999999999999),One.SignificantMantissa) then begin
      while (RequestedDigits>0) and (Fractionals>wError) do begin
       Fractionals:=Fractionals*10;
+      wError:=wError*10;
       Digit:=Fractionals shr (-One.Exponent);
       inc(Len);
       if Len>=length(Buffer) then begin
