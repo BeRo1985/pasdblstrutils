@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2026-10-09-06-14-0000                       *
+ *                        Version 2026-10-09-06-17-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -2363,7 +2363,9 @@ type PFPLimb=^TFPLimb;
        end;
       end;
       if SeenDigit then begin
-       if MantissaShift<=0 then begin
+       // Strictly below zero: at zero the digit fits completely into the current limb, and a shift by 32 would be
+       // masked to 0 by the CPU, so that the digit would be stored a second time into the next limb
+       if MantissaShift<0 then begin
         MantissaPointer^:=MantissaPointer^ or TPasDblStrUtilsUInt32(TPasDblStrUtilsUInt32(Value) shr TPasDblStrUtilsUInt32(-MantissaShift));
         inc(MantissaPointer);
         if TPasDblStrUtilsPtrUInt(MantissaPointer)>TPasDblStrUtilsPtrUInt(pointer(@Mult[MANT_LIMBS])) then begin
