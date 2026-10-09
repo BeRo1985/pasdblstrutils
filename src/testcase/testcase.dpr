@@ -334,6 +334,44 @@ begin
  S2DIssue137;
 end;
 
+procedure TestOutputModes;
+ procedure Check(const aBits:UInt64;const aOutputMode:TPasDblStrUtilsOutputMode;const aRequestedDigits:Int32;const aExpected:RawByteString);
+ var r:RawByteString;
+ begin
+  r:=ConvertDoubleToString(Double(Pointer(@aBits)^),aOutputMode,aRequestedDigits);
+  if r<>aExpected then begin
+   writeln('Failed: ',IntToHex(aBits,16),' ',aRequestedDigits,': ',r,' <> ',aExpected);
+  end;
+ end;
+begin
+  Check(UInt64($405EC00000000000),omPrecision,3,'123');
+  Check(UInt64($4093480000000000),omPrecision,3,'1.23e+3');
+  Check(UInt64($3FF0000000000000),omPrecision,3,'1.00');
+  Check(UInt64($3EB0C6F7A0B5ED8D),omPrecision,1,'0.000001');
+  Check(UInt64($3E7AD7F29ABCAF48),omPrecision,1,'1e-7');
+  Check(UInt64($3FF8000000000000),omPrecision,-1,'1.5');
+  Check(UInt64($3FB999999999999A),omPrecision,30,'0.100000000000000005551115123126');
+  Check(UInt64($4023000000000000),omPrecision,1,'1e+1');
+  Check(UInt64($408F3C0000000000),omPrecision,3,'1.00e+3');
+  Check(UInt64($0000000000000000),omPrecision,3,'0.00');
+  Check(UInt64($44B52D02C7E14AF7),omPrecision,-1,'1.0000000000000001e+23');
+  Check(UInt64($7FEFFFFFFFFFFFFF),omPrecision,25,'1.797693134862315708145274e+308');
+  Check(UInt64($0000000000000001),omPrecision,5,'4.9407e-324');
+  Check(UInt64($0010000000000000),omPrecision,40,'2.225073858507201383090232717332404064219e-308');
+  Check(UInt64($3FE0000000000000),omExponential,3,'5.00e-1');
+  Check(UInt64($4028000000000000),omExponential,-1,'1.2e+1');
+  Check(UInt64($0000000000000000),omExponential,3,'0.00e+0');
+  Check(UInt64($01A56E1FC2F8F359),omExponential,20,'1.0000000000000000251e-300');
+  Check(UInt64($0000000000000000),omFixed,2,'0.00');
+  Check(UInt64($3FAEB851EB851EB8),omFixed,21,'0.059999999999999997780');
+  Check(UInt64($3B86AAD80C11872C),omFixed,21,'0.000000000000000000001');
+  Check(UInt64($3E7091B75E91CF99),omFixed,10,'0.0000000617');
+  Check(UInt64($440DB841FCA6BED7),omFixed,2,'68529093638392307712.00');
+  Check(UInt64($43F0000000000000),omFixed,1,'18446744073709551616.0');
+  Check(UInt64($405EDD2F1A9FBE77),omFixed,25,'123.4560000000000030695446185');
+  Check(UInt64($C023400000000000),omFixed,2,'-9.63');
+end;
+
 procedure TestParser;
 var Path,FileName:string;
     SearchRec:TSearchRec;
@@ -709,6 +747,11 @@ begin
 
   writeln('Running ryu tests . . .');
   TestRYU;
+  writeln('Done!');
+  writeln;
+
+  writeln('Running output mode tests . . .');
+  TestOutputModes;
   writeln('Done!');
   writeln;
 

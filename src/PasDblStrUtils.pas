@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2026-10-09-03-45-0000                       *
+ *                        Version 2026-10-09-04-51-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -6428,7 +6428,7 @@ type TDoubleValue=record
    BigNum.Bigits[i]:=Accumulator and BigitMask;
    Accumulator:=Accumulator shr BigitSize;
   end;
-  for i:=BigNum.UsedDigits-1 to ProductLength-1 do begin
+  for i:=BigNum.UsedDigits to ProductLength-1 do begin
    BigitIndex1:=BigNum.UsedDigits-1;
    BigitIndex2:=i-BigitIndex1;
    while BigitIndex2<BigNum.UsedDigits do begin
@@ -6628,6 +6628,7 @@ type TDoubleValue=record
  var i,Digit:TPasDblStrUtilsInt32;
  begin
   Assert(Count>=0);
+  Len:=0;
   for i:=1 to Count-1 do begin
    Digit:=BigNumDivideModuloIntBigNum(Numerator,Denominator);
    Assert((Digit>=0) and (Digit<=9));
@@ -6670,7 +6671,8 @@ type TDoubleValue=record
    if BigNumPlusCompare(Numerator,Numerator,Denominator)>=0 then begin
     Buffer:='1';
     Len:=1;
-  end else begin
+    inc(DecimalPoint);
+   end else begin
     Len:=0;
    end;
   end else begin
@@ -6794,6 +6796,10 @@ type TDoubleValue=record
    DecimalPoint:=-RequestedDigits;
   end else begin
    Assert(BigNumMaxSignificantMantissaBits>=(324*4));
+   BigNumZero(Numerator);
+   BigNumZero(Denominator);
+   BigNumZero(DeltaMinus);
+   BigNumZero(DeltaPlus);
    NeedBoundaryDeltas:=Mode=ModeShortest;
    InitialScaledStartValues(Casted,SignificantMantissa,Exponent,EstimatedPower,NeedBoundaryDeltas,Numerator,Denominator,DeltaMinus,DeltaPlus,10);
    FixupMultiplyBase(EstimatedPower,IsEven,DecimalPoint,Numerator,Denominator,DeltaMinus,DeltaPlus,10);
@@ -7047,7 +7053,7 @@ type TDoubleValue=record
  begin
   Assert(QWordLess(Rest,TenCapacity));
   result:=false;
-  if QWordGreater(TenCapacity-UnitValue,UnitValue) then begin
+  if QWordLess(UnitValue,TenCapacity) and QWordGreater(TenCapacity-UnitValue,UnitValue) then begin
    result:=QWordGreater(TenCapacity-Rest,Rest) and QWordGreaterOrEqual(TenCapacity-(2*Rest),2*UnitValue);
    if not result then begin
     result:=QWordGreater(Rest,UnitValue) and QWordLessOrEqual(TenCapacity-(Rest-UnitValue),Rest-UnitValue);
@@ -7401,7 +7407,7 @@ type TDoubleValue=record
   begin
    if Power>=64 then begin
     result:=a.High shr (Power-64);
-    dec(a.High,result shl (Power-64));
+    dec(a.High,TPasDblStrUtilsUInt64(result) shl (Power-64));
    end else begin
     result:=(a.Low shr Power)+(a.High shl (64-Power));
     a.High:=0;
@@ -7577,7 +7583,7 @@ type TDoubleValue=record
   SplitDouble(Value,SignificantMantissa,Exponent);
   if (Exponent<=20) and (FracitionalCount<=20) then begin
    Len:=0;
-   if (Exponent+53)>74 then begin
+   if (Exponent+53)>64 then begin
     Divisor:=Five17;
     DivisorPower:=17;
     Dividend:=SignificantMantissa;
@@ -7586,7 +7592,7 @@ type TDoubleValue=record
      Quotient:=Dividend div Divisor;
      Remainder:=(Dividend mod Divisor) shl DivisorPower;
     end else begin
-     Dividend:=Dividend shl (DivisorPower-Exponent);
+     Divisor:=Divisor shl (DivisorPower-Exponent);
      Quotient:=Dividend div Divisor;
      Remainder:=(Dividend mod Divisor) shl Exponent;
     end;
@@ -7608,7 +7614,7 @@ type TDoubleValue=record
     DecimalPoint:=Len;
     FillFractionals(Fractionals,Exponent,FracitionalCount,Buffer,Len,DecimalPoint);
    end else if Exponent<-128 then begin
-    Assert(FracitionalCount>=20);
+    Assert(FracitionalCount<=20);
     Buffer:='';
     Len:=0;
     DecimalPoint:=-FracitionalCount;
@@ -7636,6 +7642,29 @@ begin
   end;
  end else if IsZero(aValue) then begin
   result:='0';
+  case aOutputMode of
+   omFixed:begin
+    if aRequestedDigits>0 then begin
+     result:=result+'.';
+     for i:=1 to aRequestedDigits do begin
+      result:=result+'0';
+     end;
+    end;
+   end;
+   omExponential,omPrecision:begin
+    if aRequestedDigits>1 then begin
+     result:=result+'.';
+     for i:=2 to aRequestedDigits do begin
+      result:=result+'0';
+     end;
+    end;
+    if aOutputMode=omExponential then begin
+     result:=result+'e+0';
+    end;
+   end;
+   else begin
+   end;
+  end;
  end else if IsNegInfinite(aValue) then begin
   result:='-Infinity';
  end else if IsInfinite(aValue) then begin
@@ -7682,13 +7711,15 @@ begin
      omExponential,omPrecision:begin
       if aRequestedDigits<=0 then begin
        OK:=DoFastShortest(aValue,result,Len,DecimalPoint);
-       inc(DecimalPoint,Len);
-       aRequestedDigits:=Len-1;
+       if OK then begin
+        inc(DecimalPoint,Len);
+        aRequestedDigits:=Len;
+       end;
       end else begin
        OK:=DoFastPrecision(aValue,aRequestedDigits,result,Len,DecimalPoint);
        inc(DecimalPoint,Len);
       end;
-      Assert((Len>0) and (Len<=(aRequestedDigits+1)));
+      Assert((not OK) or ((Len>0) and (Len<=aRequestedDigits)));
      end;
      omRadix:begin
       if ((aRequestedDigits>=2) and (aRequestedDigits<=36)) and (IsFinite(aValue) and (aValue<4294967295.0) and (System.Int(aValue)=aValue)) then begin
@@ -7712,12 +7743,12 @@ begin
        if aRequestedDigits<=0 then begin
         DoubleToDecimal(aValue,ModeShortest,aRequestedDigits,result,Len,DecimalPoint);
         OK:=true;
-        aRequestedDigits:=Len-1;
+        aRequestedDigits:=Len;
        end else begin
         DoubleToDecimal(aValue,ModePrecision,aRequestedDigits,result,Len,DecimalPoint);
         OK:=true;
        end;
-       Assert((Len>0) and (Len<=(aRequestedDigits+1)));
+       Assert((Len>0) and (Len<=aRequestedDigits));
       end;
       omRadix:begin
        if (aRequestedDigits>=2) and (aRequestedDigits<=36) then begin
@@ -7756,7 +7787,7 @@ begin
        if Len<>1 then begin
         Insert('.',result,2);
        end;
-       if DecimalPoint>=0 then begin
+       if DecimalPoint>0 then begin
         result:=result+'e+'+TPasDblStrUtilsString(IntToStr(abs(DecimalPoint-1)));
        end else begin
         result:=result+'e-'+TPasDblStrUtilsString(IntToStr(abs(DecimalPoint-1)));
@@ -7794,7 +7825,7 @@ begin
        end else begin
         SetLength(result,1);
        end;
-       if DecimalPoint>=0 then begin
+       if DecimalPoint>0 then begin
         result:=result+'e+'+TPasDblStrUtilsString(IntToStr(abs(DecimalPoint-1)));
        end else begin
         result:=result+'e-'+TPasDblStrUtilsString(IntToStr(abs(DecimalPoint-1)));
@@ -7804,7 +7835,7 @@ begin
        if aRequestedDigits<1 then begin
         aRequestedDigits:=1;
        end;
-       if (DecimalPoint<-6) or (DecimalPoint>=aRequestedDigits) then begin
+       if (DecimalPoint<-5) or (DecimalPoint>aRequestedDigits) then begin
         if aRequestedDigits<>1 then begin
          Insert('.',result,2);
          for i:=Len+1 to aRequestedDigits do begin
@@ -7813,7 +7844,7 @@ begin
         end else begin
          SetLength(result,1);
         end;
-        if DecimalPoint>=0 then begin
+        if DecimalPoint>0 then begin
          result:=result+'e+'+TPasDblStrUtilsString(IntToStr(abs(DecimalPoint-1)));
         end else begin
          result:=result+'e-'+TPasDblStrUtilsString(IntToStr(abs(DecimalPoint-1)));
@@ -7833,9 +7864,7 @@ begin
           result[i]:='0';
          end;
          if DecimalPoint<aRequestedDigits then begin
-          if Len<>1 then begin
-           Insert('.',result,DecimalPoint+1);
-          end;
+          Insert('.',result,DecimalPoint+1);
          end;
         end;
        end;
