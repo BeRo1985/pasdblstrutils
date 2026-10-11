@@ -1,7 +1,7 @@
 (******************************************************************************
  *                               PasDblStrUtils                               *
  ******************************************************************************
- *                        Version 2026-10-09-06-17-0000                       *
+ *                        Version 2026-10-11-17-01-0000                       *
  ******************************************************************************
  *                                zlib license                                *
  *============================================================================*
@@ -51,7 +51,7 @@
  unit PasDblStrUtils;
 {$ifdef fpc}
  {$mode delphi}
- {$if FPC_FULLVERSION>=30301}
+ {$if defined(FPC_FULLVERSION) and (FPC_FULLVERSION>=30301)}
   // Delphi mode turns excess precision on since FPC 3.3.1: double expressions are then computed in
   // extended over the x87 and rounded twice, so that the fast path of the parser misses by one ulp
   {$excessprecision off}
